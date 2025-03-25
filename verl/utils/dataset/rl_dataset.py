@@ -230,3 +230,78 @@ class RLHFDataset(Dataset):
                 del state['dataframe']
             return state
         return self.__dict__.copy()
+
+import json
+
+class JSONDataset(Dataset):
+    """
+    A dataset class that automatically detects and reads data from local JSON files (array format or JSON Lines format).
+    """
+
+    def __init__(self, json_files: Union[str, List[str]], cache_dir='~/.cache/local_json'):
+        if not isinstance(json_files, list):
+            json_files = [json_files]
+
+        self.json_files = copy.deepcopy(json_files)
+        self.original_json_files = copy.deepcopy(json_files)  # for resuming
+        self.cache_dir = os.path.expanduser(cache_dir)
+
+        # whether to store the dataset in state_dict()
+        # default not store
+        self.serialize_dataset = False
+        self._download()
+        self._read_files()
+
+    def _download(self, use_origin_json=False):
+        json_files = self.json_files if not use_origin_json else self.original_json_files
+        for i, json_file in enumerate(json_files):
+            self.json_files[i] = self._copy_to_local(src=json_file, cache_dir=self.cache_dir)
+
+    def _copy_to_local(self, src: str, cache_dir: str) -> str:
+        # Simplified version of copy_to_local
+        import shutil
+        local_path = os.path.join(cache_dir, os.path.basename(src))
+        os.makedirs(cache_dir, exist_ok=True)
+        shutil.copy2(src, local_path)
+        return local_path
+
+    def _read_files(self):
+        data = []
+        for json_file in self.json_files:
+            with open(json_file, 'r', encoding='utf-8') as file:
+                first_line = file.readline().strip()
+                if first_line.startswith("["):
+                    # JSON array format
+                    file.seek(0)  # Reset file pointer to the beginning
+                    data.extend(json.load(file))
+                else:
+                    # JSON Lines format
+                    file.seek(0)  # Reset file pointer to the beginning
+                    for line in file:
+                        if line.strip():  # Skip empty lines
+                            data.append(json.loads(line.strip()))
+        self.data = data
+
+        print(f'dataset len: {len(self.data)}')
+
+    def resume_dataset_state(self):
+        self.serialize_dataset = False if hasattr(self, 'original_json_files') else True
+        if not self.serialize_dataset:
+            self._download(use_origin_json=True)  # download and resume from original JSON files
+            self._read_files()
+        else:
+            print('Old dataloader checkpoint file is used, please train from scratch for better checkpoint performance')
+
+    def __len__(self):
+        return len(self.data)
+
+    def __getitem__(self, item):
+        return self.data[item]
+
+    def __getstate__(self):
+        if not self.serialize_dataset:
+            state = self.__dict__.copy()
+            if 'data' in state:
+                del state['data']
+            return state
+        return self.__dict__.copy()

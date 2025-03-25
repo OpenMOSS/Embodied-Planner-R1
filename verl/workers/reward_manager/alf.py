@@ -17,14 +17,23 @@ from verl.utils.reward_score import _default_compute_score
 import torch
 
 
-class NaiveRewardManager:
+def alfworld_done_reward(**kwargs):
+    completion_str = completion
+    reward = 0
+    if completion_str.endswith("user\nSUCCESS\n"):
+        reward = 1.0
+    else:
+        reward = 0.0
+    return rewards
+
+class AlfRewardManager:
     """The reward manager.
     """
 
     def __init__(self, tokenizer, num_examine, compute_score=None) -> None:
         self.tokenizer = tokenizer
         self.num_examine = num_examine  # the number of batches of decoded responses to print to the console
-        self.compute_score = compute_score or _default_compute_score
+        self.compute_score = alfworld_done_reward
 
     def verify(self, data):
         scores = []
@@ -69,50 +78,39 @@ class NaiveRewardManager:
         if 'rm_scores' in data.batch.keys():
             return data.batch['rm_scores']
 
-        reward_tensor = torch.zeros_like(data.batch['responses'], dtype=torch.float32)
+        reward_tensor = torch.zeros_like(data.batch['input_ids'], dtype=torch.float32)
 
         already_print_data_sources = {}
 
         for i in range(len(data)):
             data_item = data[i]  # DataProtoItem
 
-            prompt_ids = data_item.batch['prompts']
 
-            prompt_length = prompt_ids.shape[-1]
+            prompt_completion_ids = data_item.batch['input_ids']
+            attention_mask = data_item.batch['attention_mask']
 
-            valid_prompt_length = data_item.batch['attention_mask'][:prompt_length].sum()
-            valid_prompt_ids = prompt_ids[-valid_prompt_length:]
+            prompt_completion_length = attention_mask.sum()
 
-            response_ids = data_item.batch['responses']
-            valid_response_length = data_item.batch['attention_mask'][prompt_length:].sum()
-            valid_response_ids = response_ids[:valid_response_length]
+            valid_prompt_completion_ids = prompt_completion_ids[:prompt_completion_length]
 
             # decode
-            prompt_str = self.tokenizer.decode(valid_prompt_ids)
-            response_str = self.tokenizer.decode(valid_response_ids)
-
-            ground_truth = data_item.non_tensor_batch['reward_model']['ground_truth']
+            prompt_completion_str = self.tokenizer.decode(valid_prompt_completion_ids)
 
             data_source = data_item.non_tensor_batch['data_source']
 
             extra_info = data_item.non_tensor_batch.get('extra_info', None)
 
             score = self.compute_score(
-                data_source=data_source,
-                solution_str=response_str,
-                ground_truth=ground_truth,
-                extra_info=extra_info,
+                completion=prompt_completion_str,
             )
-            reward_tensor[i, valid_response_length - 1] = score
+            reward_tensor[i, valid_prompt_completion_ids - 1] = score
 
             if data_source not in already_print_data_sources:
                 already_print_data_sources[data_source] = 0
 
             if already_print_data_sources[data_source] < self.num_examine:
                 already_print_data_sources[data_source] += 1
-                print("[prompt]", prompt_str)
-                print("[response]", response_str)
-                print("[ground_truth]", ground_truth)
+                print("[dialogue]", prompt_completion_str)
                 print("[score]", score)
 
         return reward_tensor

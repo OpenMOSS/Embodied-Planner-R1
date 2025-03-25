@@ -14,7 +14,7 @@
 """
 Note that we don't combine the main with ray_trainer as ray_trainer is used by other main.
 """
-from verl.trainer.ppo.ray_trainer import RayPPOTrainer
+from verl.trainer.ppo.ray_trainer_alf import RayPPOTrainer
 
 import os
 import ray
@@ -109,7 +109,7 @@ class TaskRunner:
         else:
             raise NotImplementedError
 
-        from verl.trainer.ppo.ray_trainer import ResourcePoolManager, Role
+        from verl.trainer.ppo.ray_trainer_alf import ResourcePoolManager, Role
 
         role_worker_mapping = {
             Role.ActorRollout: ray.remote(ActorRolloutRefWorker),
@@ -134,7 +134,6 @@ class TaskRunner:
         # - finally, we combine all the rewards together
         # - The reward type depends on the tag of the data
 
-        # breakpoint()
         if config.reward_model.enable:
             if config.reward_model.strategy == 'fsdp':
                 from verl.workers.fsdp_workers import RewardModelWorker
@@ -144,20 +143,21 @@ class TaskRunner:
                 raise NotImplementedError
             role_worker_mapping[Role.RewardModel] = ray.remote(RewardModelWorker)
             mapping[Role.RewardModel] = global_pool_id
-
-        reward_manager_name = config.reward_model.get("reward_manager", "naive")
+        # breakpoint()
+        reward_manager_name = config.reward_model.get("reward_manager", "naive") 
         if reward_manager_name == 'naive':
             from verl.workers.reward_manager import NaiveRewardManager
             reward_manager_cls = NaiveRewardManager
         elif reward_manager_name == 'prime':
             from verl.workers.reward_manager import PrimeRewardManager
             reward_manager_cls = PrimeRewardManager
+        elif reward_manager_name == 'alf':
+            from verl.workers.reward_manager import AlfRewardManager
+            reward_manager_cls = AlfRewardManager
         else:
             raise NotImplementedError
 
-        # breakpoint()
-
-        compute_score = get_custom_reward_fn(config)
+        compute_score = get_custom_reward_fn(config) # TODO: need to add a score
         reward_fn = reward_manager_cls(tokenizer=tokenizer, num_examine=0, compute_score=compute_score)
 
         # Note that we always use function-based RM for validation

@@ -15,7 +15,8 @@
 FSDP PPO Trainer with Ray-based single controller.
 This trainer supports model-agonistic model initialization with huggingface
 """
-
+from torch.utils.data import Dataset
+import json
 import os
 import uuid
 from contextlib import contextmanager
@@ -29,22 +30,22 @@ import ray
 import numpy as np
 from codetiming import Timer
 from omegaconf import OmegaConf, open_dict
-from verl import DataProto
-from verl.protocol import pad_dataproto_to_divisor, unpad_dataproto
+# from verl import DataProto
+from verl.protocol_alf import DataProto
+from verl.protocol_alf import pad_dataproto_to_divisor, unpad_dataproto
 from verl.single_controller.base import Worker
 from verl.single_controller.ray import RayResourcePool, RayWorkerGroup, RayClassWithInitArgs
 from verl.single_controller.ray.base import create_colocated_worker_cls
 from verl.trainer.ppo import core_algos
-from verl.trainer.ppo.metric_utils import compute_data_metrics, compute_throughout_metrics, compute_timing_metrics, reduce_metrics
+from verl.trainer.ppo.metric_utils import compute_data_metrics, compute_throughout_metrics, compute_timing_metrics, reduce_metrics, compute_multi_turn_data_metrics, compute_multi_turn_timing_metrics
 from verl.utils.seqlen_balancing import get_seqlen_balanced_partitions, log_seqlen_unbalance
 from verl.utils.checkpoint.checkpoint_manager import find_latest_ckpt_path
-from verl.utils.dataset.rl_dataset import RLHFDataset, collate_fn
+from verl.utils.dataset.rl_dataset import RLHFDataset, collate_fn, JSONDataset
 from verl.utils.tracking import ValidationGenerationsLogger
 from torch.utils.data import RandomSampler, SequentialSampler
 from torchdata.stateful_dataloader import StatefulDataLoader
-
+from datasets import load_dataset
 WorkerType = Type[Worker]
-
 
 class Role(Enum):
     """
@@ -185,18 +186,44 @@ def compute_advantage(data: DataProto, adv_estimator, gamma=1.0, lam=1.0, num_re
                                                                       lam=lam)
         data.batch['advantages'] = advantages
         data.batch['returns'] = returns
+
     elif adv_estimator == AdvantageEstimator.GRPO:
-        token_level_rewards = data.batch['token_level_rewards']
-        index = data.non_tensor_batch['uid']
-        responses = data.batch['responses']
-        response_length = responses.size(-1)
-        attention_mask = data.batch['attention_mask']
-        response_mask = attention_mask[:, -response_length:]
-        advantages, returns = core_algos.compute_grpo_outcome_advantage(token_level_rewards=token_level_rewards,
+        if 'input_mask' in data.batch:
+            breakpoint()
+            token_level_rewards = data.batch['token_level_rewards']
+            index = data.non_tensor_batch['uid']
+            attention_mask = data.batch['attention_mask']
+            input_mask = data.batch['input_mask']
+
+            advantages, returns = core_algos.compute_grpo_outcome_advantage(token_level_rewards=token_level_rewards,
+                                                                        eos_mask=input_mask,
+                                                                        index=index)
+            data.batch['advantages'] = advantages
+            data.batch['returns'] = returns
+        else:
+            token_level_rewards = data.batch['token_level_rewards']
+            index = data.non_tensor_batch['uid']
+            responses = data.batch['responses']
+            response_length = responses.size(-1)
+            attention_mask = data.batch['attention_mask']
+            response_mask = attention_mask[:, -response_length:]
+            advantages, returns = core_algos.compute_grpo_outcome_advantage(token_level_rewards=token_level_rewards,
                                                                         eos_mask=response_mask,
                                                                         index=index)
-        data.batch['advantages'] = advantages
-        data.batch['returns'] = returns
+            data.batch['advantages'] = advantages
+            data.batch['returns'] = returns
+    # elif adv_estimator == AdvantageEstimator.GRPO:
+    #     token_level_rewards = data.batch['token_level_rewards']
+    #     index = data.non_tensor_batch['uid']
+    #     responses = data.batch['responses']
+    #     response_length = responses.size(-1)
+    #     attention_mask = data.batch['attention_mask']
+    #     response_mask = attention_mask[:, -response_length:]
+    #     advantages, returns = core_algos.compute_grpo_outcome_advantage(token_level_rewards=token_level_rewards,
+    #                                                                     eos_mask=response_mask,
+    #                                                                     index=index)
+    #     data.batch['advantages'] = advantages
+    #     data.batch['returns'] = returns
     elif adv_estimator == AdvantageEstimator.REINFORCE_PLUS_PLUS:
         token_level_rewards = data.batch['token_level_rewards']
         responses = data.batch['responses']
@@ -265,7 +292,7 @@ class RayPPOTrainer(object):
                  val_reward_fn=None):
 
         # assert torch.cuda.is_available(), 'cuda must be available on driver'
-        breakpoint()
+        # breakpoint()
         self.tokenizer = tokenizer
         self.processor = processor
         self.config = config
@@ -409,20 +436,10 @@ class RayPPOTrainer(object):
     def _create_dataloader(self):
         # TODO: we have to make sure the batch size is divisible by the dp size
 
-        breakpoint()
-        self.train_dataset = RLHFDataset(parquet_files=self.config.data.train_files,
-                                         tokenizer=self.tokenizer,
-                                         processor=self.processor,
-                                         prompt_key=self.config.data.prompt_key,
-                                         image_key=self.config.data.get('image_key', 'images'),
-                                         max_prompt_length=self.config.data.max_prompt_length,
-                                         filter_prompts=True,
-                                         return_raw_chat=self.config.data.get('return_raw_chat', False),
-                                         truncation=self.config.data.get('truncation', 'error'),
-                                         filter_overlong_prompts=self.config.data.filter_overlong_prompts)
-        assert self.train_dataset.truncation == self.config.data.get(
-            'truncation', 'error'
-        ), f'dataset truncation {self.train_dataset.truncation} must be the same as config {self.config.data.get("truncation", "error")}'
+        # breakpoint()
+
+        self.train_dataset = JSONDataset(self.config.data.train_files)
+        
         # use sampler for better ckpt resume
         if self.config.data.shuffle:
             train_dataloader_generator = torch.Generator()
@@ -437,20 +454,8 @@ class RayPPOTrainer(object):
                                                    drop_last=True,
                                                    collate_fn=collate_fn,
                                                    sampler=sampler)
+        self.val_dataset = JSONDataset(self.config.data.val_files)
 
-        self.val_dataset = RLHFDataset(parquet_files=self.config.data.val_files,
-                                       tokenizer=self.tokenizer,
-                                       processor=self.processor,
-                                       prompt_key=self.config.data.prompt_key,
-                                       image_key=self.config.data.get('image_key', 'images'),
-                                       max_prompt_length=self.config.data.max_prompt_length,
-                                       filter_prompts=True,
-                                       return_raw_chat=self.config.data.get('return_raw_chat', False),
-                                       truncation=self.config.data.get('truncation', 'error'),
-                                       filter_overlong_prompts=self.config.data.filter_overlong_prompts)
-        assert self.val_dataset.truncation == self.config.data.get(
-            'truncation', 'error'
-        ), f'dataset truncation {self.val_dataset.truncation} must be the same as config {self.config.data.get("truncation", "error")}'
         self.val_dataloader = StatefulDataLoader(
             dataset=self.val_dataset,
             # Validation datasets are sent to inference engines as a whole batch,
@@ -507,6 +512,7 @@ class RayPPOTrainer(object):
         self.validation_generations_logger.log(self.config.trainer.logger, samples, self.global_steps)
 
     def _validate(self):
+
         breakpoint()
         reward_tensor_lst = []
         data_source_lst = []
@@ -517,33 +523,23 @@ class RayPPOTrainer(object):
         sample_scores = []
 
         for test_data in self.val_dataloader:
-            # TODO: need to adjust to support list[str]
+            breakpoint()
             test_batch = DataProto.from_single_dict(test_data)
-            # test_batch = DataProto.from_single_dict(test_data['game_file'])
 
-            # TODO: have bug
+            # Store original 
+            
             test_batch = test_batch.repeat(repeat_times=self.config.actor_rollout_ref.rollout.val_kwargs.n,
-                                           interleave=True)
+                                            interleave=True)
+            # sample_inputs.extend(input_texts)
 
-            # we only do validation on rule-based rm
-            if self.config.reward_model.enable and test_batch[0].non_tensor_batch['reward_model']['style'] == 'model':
-                return {}
+            # test_gen_batch = test_batch.pop(
+            #     batch_keys=['input_ids', 'attention_mask', 'position_ids'],
+            #     non_tensor_batch_keys=['raw_prompt_ids'],
+            # )
 
-            # Store original inputs
-            input_ids = test_batch.batch['input_ids']
-            input_texts = [self.tokenizer.decode(ids, skip_special_tokens=True) for ids in input_ids]
-            sample_inputs.extend(input_texts)
-
-            if 'multi_modal_inputs' in test_batch.non_tensor_batch.keys():
-                test_gen_batch = test_batch.pop(
-                    batch_keys=['input_ids', 'attention_mask', 'position_ids'],
-                    non_tensor_batch_keys=['raw_prompt_ids', 'multi_modal_data', 'multi_modal_inputs'],
-                )
-            else:
-                test_gen_batch = test_batch.pop(
-                    batch_keys=['input_ids', 'attention_mask', 'position_ids'],
-                    non_tensor_batch_keys=['raw_prompt_ids'],
-                )
+            test_gen_batch = test_batch.pop(
+                batch_keys=['game_file'],
+            )
 
             test_gen_batch.meta_info = {
                 'eos_token_id': self.tokenizer.eos_token_id,
@@ -551,6 +547,7 @@ class RayPPOTrainer(object):
                 'recompute_log_prob': False,
                 'do_sample': self.config.actor_rollout_ref.rollout.val_kwargs.do_sample,
                 'validate': True,
+                'system_prompt': self.config.data.system_prompt
             }
             print(f'test_gen_batch meta info: {test_gen_batch.meta_info}')
 
@@ -558,13 +555,12 @@ class RayPPOTrainer(object):
             test_gen_batch_padded, pad_size = pad_dataproto_to_divisor(test_gen_batch, self.actor_rollout_wg.world_size)
             test_output_gen_batch_padded = self.actor_rollout_wg.generate_sequences(test_gen_batch_padded)
 
-            breakpoint()
             # unpad
             test_output_gen_batch = unpad_dataproto(test_output_gen_batch_padded, pad_size=pad_size)
             print('validation generation end')
 
             # Store generated outputs
-            output_ids = test_output_gen_batch.batch['responses']
+            output_ids = test_output_gen_batch.batch['prompt_completion_ids']
             output_texts = [self.tokenizer.decode(ids, skip_special_tokens=True) for ids in output_ids]
             sample_outputs.extend(output_texts)
 
@@ -580,7 +576,7 @@ class RayPPOTrainer(object):
             reward_tensor_lst.append(reward_tensor)
             data_source_lst.append(test_batch.non_tensor_batch.get('data_source', ['unknown'] * reward_tensor.shape[0]))
 
-        self._maybe_log_val_generations(inputs=sample_inputs, outputs=sample_outputs, scores=sample_scores)
+        # self._maybe_log_val_generations(inputs=sample_inputs, outputs=sample_outputs, scores=sample_scores)
 
         reward_tensor = torch.cat(reward_tensor_lst, dim=0).sum(-1).cpu()  # (batch_size,)
         data_sources = np.concatenate(data_source_lst, axis=0)
@@ -799,7 +795,6 @@ class RayPPOTrainer(object):
             if self.config.trainer.get('val_only', False):
                 return
 
-        breakpoint()
         # we start from step 1
         self.global_steps += 1
         last_val_metrics = None
@@ -810,18 +805,12 @@ class RayPPOTrainer(object):
                 timing_raw = {}
                 breakpoint()
                 batch: DataProto = DataProto.from_single_dict(batch_dict)
+                batch = batch.repeat(repeat_times=self.config.actor_rollout_ref.rollout.n, interleave=True)
 
                 # pop those keys for generation
-                if 'multi_modal_inputs' in batch.non_tensor_batch.keys():
-                    gen_batch = batch.pop(
-                        batch_keys=['input_ids', 'attention_mask', 'position_ids'],
-                        non_tensor_batch_keys=['raw_prompt_ids', 'multi_modal_data', 'multi_modal_inputs'],
-                    )
-                else:
-                    gen_batch = batch.pop(
-                        batch_keys=['input_ids', 'attention_mask', 'position_ids'],
-                        non_tensor_batch_keys=['raw_prompt_ids'],
-                    )
+                gen_batch = batch.pop(
+                    batch_keys=['game_file'],
+                )
 
                 is_last_step = self.global_steps >= self.total_training_steps
 
@@ -829,12 +818,12 @@ class RayPPOTrainer(object):
                     # generate a batch
                     with _timer('gen', timing_raw):
                         gen_batch_output = self.actor_rollout_wg.generate_sequences(gen_batch)
-                        breakpoint()
 
                     if self.config.algorithm.adv_estimator == AdvantageEstimator.REMAX:
                         with _timer('gen_max', timing_raw):
                             gen_baseline_batch = deepcopy(gen_batch)
                             gen_baseline_batch.meta_info['do_sample'] = False
+
                             gen_baseline_output = self.actor_rollout_wg.generate_sequences(gen_baseline_batch)
 
                             batch = batch.union(gen_baseline_output)
@@ -847,11 +836,9 @@ class RayPPOTrainer(object):
 
                             del gen_baseline_batch, gen_baseline_output
 
-                    breakpoint()
                     batch.non_tensor_batch['uid'] = np.array([str(uuid.uuid4()) for _ in range(len(batch.batch))],
                                                              dtype=object)
                     # repeat to align with repeated responses in rollout
-                    batch = batch.repeat(repeat_times=self.config.actor_rollout_ref.rollout.n, interleave=True)
                     batch = batch.union(gen_batch_output)
 
                     # balance the number of valid tokens on each dp rank.
@@ -865,11 +852,7 @@ class RayPPOTrainer(object):
 
                     # recompute old_log_probs
                     with _timer('old_log_prob', timing_raw):
-
-                        breakpoint()
-                        old_log_prob = self.actor_rollout_wg.compute_log_prob(batch)
-
-                        breakpoint()
+                        old_log_prob = self.actor_rollout_wg.compute_multi_turn_log_prob(batch)
                         batch = batch.union(old_log_prob)
 
                     if self.use_reference_policy:
@@ -907,6 +890,7 @@ class RayPPOTrainer(object):
                             batch.batch['token_level_rewards'] = batch.batch['token_level_scores']
 
                         # compute advantages, executed on the driver process
+                        breakpoint()
                         batch = compute_advantage(batch,
                                                   adv_estimator=self.config.algorithm.adv_estimator,
                                                   gamma=self.config.algorithm.gamma,
@@ -942,9 +926,10 @@ class RayPPOTrainer(object):
                         with _timer('save_checkpoint', timing_raw):
                             self._save_checkpoint()
 
+                breakpoint()
                 # collect metrics
-                metrics.update(compute_data_metrics(batch=batch, use_critic=self.use_critic))
-                metrics.update(compute_timing_metrics(batch=batch, timing_raw=timing_raw))
+                metrics.update(compute_multi_turn_data_metrics(batch=batch, use_critic=self.use_critic))
+                metrics.update(compute_multi_turn_timing_metrics(batch=batch, timing_raw=timing_raw))
                 # TODO: implement actual tflpo and theoretical tflpo
                 n_gpus = self.resource_pool_manager.get_n_gpus()
                 metrics.update(compute_throughout_metrics(batch=batch, timing_raw=timing_raw, n_gpus=n_gpus))

@@ -309,6 +309,25 @@ class ActorRolloutRefWorker(Worker):
             rollout = HFRollout(module=self.actor_module_fsdp, config=self.config.rollout)
             rollout_sharding_manager = BaseShardingManager()
             # TODO: a sharding manager that do nothing?
+        elif rollout_name == 'alf':
+            from verl.workers.rollout.vllm_rollout.alf_rollout import AlfRollout
+            from verl.workers.sharding_manager import FSDPVLLMShardingManager
+            log_gpu_memory_usage(f'Before building {rollout_name} rollout', logger=None)
+            local_path = copy_to_local(self.config.model.path)
+            rollout = AlfRollout(actor_module=self.actor_module_fsdp,
+                                    config=self.config.rollout,
+                                    tokenizer=self.tokenizer,
+                                    model_hf_config=self.actor_model_config)
+
+            log_gpu_memory_usage(f'After building {rollout_name} rollout', logger=None)
+            if torch.distributed.get_world_size() == 1:
+                self.config.rollout.load_format = 'dummy_hf'
+            rollout_sharding_manager = FSDPVLLMShardingManager(module=self.actor_module_fsdp,
+                                                               inference_engine=rollout.inference_engine,
+                                                               model_config=self.actor_model_config,
+                                                               full_params='hf' in self.config.rollout.load_format,
+                                                               device_mesh=rollout_device_mesh)
+            log_gpu_memory_usage('After building sharding manager', logger=None)
 
         elif rollout_name == 'vllm':
             from verl.workers.rollout.vllm_rollout import vLLMRollout, vllm_mode
@@ -570,6 +589,33 @@ class ActorRolloutRefWorker(Worker):
         with self.ulysses_sharding_manager:
             data = self.ulysses_sharding_manager.preprocess_data(data)
             output = self.ref_policy.compute_log_prob(data=data)
+            output = DataProto.from_dict(tensors={'ref_log_prob': output})
+            output = self.ulysses_sharding_manager.postprocess_data(output)
+
+        output = output.to('cpu')
+
+        # https://pytorch.org/docs/stable/notes/fsdp.html#fsdp-notes
+        # unshard the root FSDP module
+        if self.world_size > 1:
+            self.ref_policy.actor_module._handle.reshard(True)
+
+        return output
+
+    @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
+    def compute_ref_multi_turn_log_prob(self, data: DataProto):
+        assert self._is_ref
+        breakpoint()
+        # Support all hardwares
+        data = data.to(torch.cuda.current_device())
+
+        micro_batch_size = self.config.ref.log_prob_micro_batch_size_per_gpu
+        data.meta_info['micro_batch_size'] = micro_batch_size
+        data.meta_info['temperature'] = self.config.rollout.temperature
+        data.meta_info['max_token_len'] = self.config.ref.log_prob_max_token_len_per_gpu
+        data.meta_info['use_dynamic_bsz'] = self.config.ref.log_prob_use_dynamic_bsz
+        with self.ulysses_sharding_manager:
+            data = self.ulysses_sharding_manager.preprocess_data(data)
+            output = self.ref_policy.compute_multi_turn_log_prob(data=data)
             output = DataProto.from_dict(tensors={'ref_log_prob': output})
             output = self.ulysses_sharding_manager.postprocess_data(output)
 

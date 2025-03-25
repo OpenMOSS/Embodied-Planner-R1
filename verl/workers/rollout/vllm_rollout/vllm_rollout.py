@@ -155,6 +155,8 @@ class vLLMRollout(BaseRollout):
 
     @torch.no_grad()
     def generate_sequences(self, prompts: DataProto, **kwargs) -> DataProto:
+
+        # breakpoint()
         # rebuild vllm cache engine
         if self.config.free_cache_engine:
             self.inference_engine.init_cache_engine()
@@ -202,6 +204,7 @@ class vLLMRollout(BaseRollout):
                 prompt_token_ids=idx_list,
                 use_tqdm=False)
 
+            # breakpoint()
             # TODO(sgm): disable logprob when recompute_log_prob is enable
             # if n = 1: (bs, response_length) ; if n > 1: (bs * n, response_length)
             response = output[0].to(idx.device)
