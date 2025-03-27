@@ -17,14 +17,14 @@ from verl.utils.reward_score import _default_compute_score
 import torch
 
 
-def alfworld_done_reward(**kwargs):
+def alfworld_done_reward(completion):
     completion_str = completion
     reward = 0
     if completion_str.endswith("user\nSUCCESS\n"):
         reward = 1.0
     else:
         reward = 0.0
-    return rewards
+    return reward
 
 class AlfRewardManager:
     """The reward manager.
@@ -73,14 +73,15 @@ class AlfRewardManager:
 
     def __call__(self, data: DataProto):
         """We will expand this function gradually based on the available datasets"""
-        breakpoint()
+        # breakpoint()
         # If there is rm score, we directly return rm score. Otherwise, we compute via rm_score_fn
         if 'rm_scores' in data.batch.keys():
             return data.batch['rm_scores']
 
         reward_tensor = torch.zeros_like(data.batch['input_ids'], dtype=torch.float32)
 
-        already_print_data_sources = {}
+        # already_print_data_sources = {}
+        already_print = 0
 
         for i in range(len(data)):
             data_item = data[i]  # DataProtoItem
@@ -94,22 +95,22 @@ class AlfRewardManager:
             valid_prompt_completion_ids = prompt_completion_ids[:prompt_completion_length]
 
             # decode
-            prompt_completion_str = self.tokenizer.decode(valid_prompt_completion_ids)
+            prompt_completion_str = self.tokenizer.decode(valid_prompt_completion_ids, skip_special_tokens=True)
 
-            data_source = data_item.non_tensor_batch['data_source']
+            # data_source = data_item.non_tensor_batch['data_source']
 
             extra_info = data_item.non_tensor_batch.get('extra_info', None)
 
             score = self.compute_score(
                 completion=prompt_completion_str,
             )
-            reward_tensor[i, valid_prompt_completion_ids - 1] = score
+            reward_tensor[i, prompt_completion_length - 1] = score
 
-            if data_source not in already_print_data_sources:
-                already_print_data_sources[data_source] = 0
+            # if data_source not in already_print_data_sources:
+            #     already_print_data_sources[data_source] = 0
 
-            if already_print_data_sources[data_source] < self.num_examine:
-                already_print_data_sources[data_source] += 1
+            if already_print < self.num_examine:
+                already_print += 1
                 print("[dialogue]", prompt_completion_str)
                 print("[score]", score)
 

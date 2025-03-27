@@ -271,14 +271,14 @@ class DataProto:
                     0] == batch_size, f'key {key} length {len(val)} is not equal to batch size {batch_size}'
 
     @classmethod
-    def from_single_dict(cls, data: Dict[str, Union[torch.Tensor, np.ndarray, str]], meta_info=None):
+    def from_single_dict(cls, data: Dict[str, Union[torch.Tensor, np.ndarray]], meta_info=None):
         tensors = {}
         non_tensors = {}
 
         for key, val in data.items():
             if isinstance(val, torch.Tensor):
                 tensors[key] = val
-            elif isinstance(val, Union[np.ndarray, str]):
+            elif isinstance(val, np.ndarray):
                 non_tensors[key] = val
             else:
                 raise ValueError(f'Unsupported type in data {type(val)}')
@@ -291,10 +291,10 @@ class DataProto:
         1. All the tensor in tensors have the same dim0
         2. Only dim0 is the batch dim
         """
-        # assert len(tensors) > 0, 'tensors must not be empty'
-        # assert num_batch_dims > 0, 'num_batch_dims must be greater than zero'
-        # if non_tensors is not None:
-        #     assert num_batch_dims == 1, 'only support num_batch_dims=1 when non_tensors is not None.'
+        assert len(tensors) > 0, 'tensors must not be empty'
+        assert num_batch_dims > 0, 'num_batch_dims must be greater than zero'
+        if non_tensors is not None:
+            assert num_batch_dims == 1, 'only support num_batch_dims=1 when non_tensors is not None.'
 
         if meta_info is None:
             meta_info = {}
@@ -302,44 +302,23 @@ class DataProto:
             non_tensors = {}
 
         assert isinstance(non_tensors, dict)
-        assert num_batch_dims > 0, 'num_batch_dims must be greater than zero'
-        
-        # 如果 tensors 为空，但 non_tensors 不为空，创建一个填充的 TensorDict
-        if len(tensors) == 0 and len(non_tensors) > 0:
-            # 获取非张量数据的长度作为批次大小
-            batch_size = None
-            for key, val in non_tensors.items():
-                if isinstance(val, (list, np.ndarray)):
-                    batch_size = len(val)
-                    break
-            
-            if batch_size is not None:
-                # 创建一个空的 TensorDict，使用 non_tensors 的长度作为批次大小
-                tensors = {'_dummy': torch.zeros((batch_size,))}
-                tensor_dict = TensorDict(source=tensors, batch_size=[batch_size])
-                
-                # 将非张量数据转换为 numpy 数组
-                for key, val in non_tensors.items():
-                    non_tensors[key] = np.array(val, dtype=object)
-        else:
-            assert len(tensors) > 0
-            batch_size = None
-            pivot_key = None
-            
-            for key, tensor in tensors.items():
-                if batch_size is None:
-                    batch_size = tensor.shape[:num_batch_dims]
-                    pivot_key = key
-                else:
-                    current_batch = tensor.shape[:num_batch_dims]
-                    assert batch_size == current_batch, \
-                        f'Not all the tensor in tensors have the same batch size with batch_dims={num_batch_dims}. Got {pivot_key} has {batch_size}, {key} has {current_batch}'
 
-            for key, val in non_tensors.items():
-                non_tensors[key] = np.array(val, dtype=object)
+        # get and check batch size
+        batch_size = None
+        pivot_key = None
+        for key, tensor in tensors.items():
+            if batch_size is None:
+                batch_size = tensor.shape[:num_batch_dims]
+                pivot_key = key
+            else:
+                current_batch = tensor.shape[:num_batch_dims]
+                assert batch_size == current_batch, \
+                    f'Not all the tensor in tensors have the same batch size with batch_dims={num_batch_dims}. Got {pivot_key} has {batch_size}, {key} has {current_batch}'
 
-            tensor_dict = TensorDict(source=tensors, batch_size=batch_size) 
-  
+        for key, val in non_tensors.items():
+            non_tensors[key] = np.array(val, dtype=object)
+
+        tensor_dict = TensorDict(source=tensors, batch_size=batch_size)
         return cls(batch=tensor_dict, non_tensor_batch=non_tensors, meta_info=meta_info)
 
     def to(self, device) -> 'DataProto':

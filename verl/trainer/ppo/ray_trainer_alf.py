@@ -31,8 +31,8 @@ import numpy as np
 from codetiming import Timer
 from omegaconf import OmegaConf, open_dict
 # from verl import DataProto
-from verl.protocol_alf import DataProto
-from verl.protocol_alf import pad_dataproto_to_divisor, unpad_dataproto
+from verl.protocol import DataProto
+from verl.protocol import pad_dataproto_to_divisor, unpad_dataproto
 from verl.single_controller.base import Worker
 from verl.single_controller.ray import RayResourcePool, RayWorkerGroup, RayClassWithInitArgs
 from verl.single_controller.ray.base import create_colocated_worker_cls
@@ -513,7 +513,7 @@ class RayPPOTrainer(object):
 
     def _validate(self):
 
-        breakpoint()
+        # breakpoint()
         reward_tensor_lst = []
         data_source_lst = []
 
@@ -523,31 +523,25 @@ class RayPPOTrainer(object):
         sample_scores = []
 
         for test_data in self.val_dataloader:
-            breakpoint()
+            # breakpoint()
             test_batch = DataProto.from_single_dict(test_data)
 
-            # Store original 
-            
+            test_batch = test_batch.pop(
+                batch_keys=['_dummy'],
+                non_tensor_batch_keys=['game_file'],
+            )
+    
             test_batch = test_batch.repeat(repeat_times=self.config.actor_rollout_ref.rollout.val_kwargs.n,
                                             interleave=True)
-            # sample_inputs.extend(input_texts)
-
-            # test_gen_batch = test_batch.pop(
-            #     batch_keys=['input_ids', 'attention_mask', 'position_ids'],
-            #     non_tensor_batch_keys=['raw_prompt_ids'],
-            # )
-
-            test_gen_batch = test_batch.pop(
-                batch_keys=['game_file'],
-            )
-
+            test_gen_batch = test_batch
             test_gen_batch.meta_info = {
                 'eos_token_id': self.tokenizer.eos_token_id,
                 'pad_token_id': self.tokenizer.pad_token_id,
                 'recompute_log_prob': False,
                 'do_sample': self.config.actor_rollout_ref.rollout.val_kwargs.do_sample,
                 'validate': True,
-                'system_prompt': self.config.data.system_prompt
+                'system_prompt': self.config.data.system_prompt,
+                'max_length': self.config.data.max_length
             }
             print(f'test_gen_batch meta info: {test_gen_batch.meta_info}')
 
@@ -555,12 +549,13 @@ class RayPPOTrainer(object):
             test_gen_batch_padded, pad_size = pad_dataproto_to_divisor(test_gen_batch, self.actor_rollout_wg.world_size)
             test_output_gen_batch_padded = self.actor_rollout_wg.generate_sequences(test_gen_batch_padded)
 
+            # breakpoint()
             # unpad
             test_output_gen_batch = unpad_dataproto(test_output_gen_batch_padded, pad_size=pad_size)
             print('validation generation end')
 
             # Store generated outputs
-            output_ids = test_output_gen_batch.batch['prompt_completion_ids']
+            output_ids = test_output_gen_batch.batch['input_ids']
             output_texts = [self.tokenizer.decode(ids, skip_special_tokens=True) for ids in output_ids]
             sample_outputs.extend(output_texts)
 
@@ -574,24 +569,27 @@ class RayPPOTrainer(object):
             sample_scores.extend(scores)
 
             reward_tensor_lst.append(reward_tensor)
-            data_source_lst.append(test_batch.non_tensor_batch.get('data_source', ['unknown'] * reward_tensor.shape[0]))
+            # data_source_lst.append(test_batch.non_tensor_batch.get('data_source', ['unknown'] * reward_tensor.shape[0]))
 
         # self._maybe_log_val_generations(inputs=sample_inputs, outputs=sample_outputs, scores=sample_scores)
 
         reward_tensor = torch.cat(reward_tensor_lst, dim=0).sum(-1).cpu()  # (batch_size,)
-        data_sources = np.concatenate(data_source_lst, axis=0)
-
-        # evaluate test_score based on data source
-        data_source_reward = {}
-        for i in range(reward_tensor.shape[0]):
-            data_source = data_sources[i]
-            if data_source not in data_source_reward:
-                data_source_reward[data_source] = []
-            data_source_reward[data_source].append(reward_tensor[i].item())
-
         metric_dict = {}
-        for data_source, rewards in data_source_reward.items():
-            metric_dict[f'val/test_score/{data_source}'] = np.mean(rewards)
+        metric_dict[f'val/test_score'] = reward_tensor.mean(-1)
+        # data_sources = np.concatenate(data_source_lst, axis=0)
+
+        # TODO: may be add type to replace data_source
+        # evaluate test_score based on data source
+        # data_source_reward = {}
+        # for i in range(reward_tensor.shape[0]):
+        #     data_source = data_sources[i]
+        #     if data_source not in data_source_reward:
+        #         data_source_reward[data_source] = []
+        #     data_source_reward[data_source].append(reward_tensor[i].item())
+
+        # metric_dict = {}
+        # for data_source, rewards in data_source_reward.items():
+        #     metric_dict[f'val/test_score/{data_source}'] = np.mean(rewards)
 
         return metric_dict
 
@@ -775,7 +773,7 @@ class RayPPOTrainer(object):
         """
         from verl.utils.tracking import Tracking
         from omegaconf import OmegaConf
-        breakpoint()
+        # breakpoint()
         logger = Tracking(project_name=self.config.trainer.project_name,
                           experiment_name=self.config.trainer.experiment_name,
                           default_backend=self.config.trainer.logger,
@@ -809,7 +807,8 @@ class RayPPOTrainer(object):
 
                 # pop those keys for generation
                 gen_batch = batch.pop(
-                    batch_keys=['game_file'],
+                    batch_keys=['_dummy'],
+                    non_tensor_batch_keys=['game_file'],
                 )
 
                 is_last_step = self.global_steps >= self.total_training_steps
@@ -836,10 +835,10 @@ class RayPPOTrainer(object):
 
                             del gen_baseline_batch, gen_baseline_output
 
-                    batch.non_tensor_batch['uid'] = np.array([str(uuid.uuid4()) for _ in range(len(batch.batch))],
-                                                             dtype=object)
+                    # batch.non_tensor_batch['uid'] = np.array([str(uuid.uuid4()) for _ in range(len(batch.batch))],
+                    #                                          dtype=object)
                     # repeat to align with repeated responses in rollout
-                    batch = batch.union(gen_batch_output)
+                    batch = gen_batch_output
 
                     # balance the number of valid tokens on each dp rank.
                     # Note that this breaks the order of data inside the batch.

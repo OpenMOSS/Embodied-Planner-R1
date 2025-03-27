@@ -24,14 +24,14 @@ When working with Megatron:
 - Do inference in tp. pp is treated as additional dp
 - After inference, all the parameters that doesn't belong to this pp rank is freed.
 """
-from typing import List, Any, Dict, Tuple, Sequence
+from typing import List, Any, Dict, Tuple, Sequence, Union
 from contextlib import contextmanager
 from omegaconf import DictConfig
 import torch
 import torch.distributed
 from tensordict import TensorDict
 from torch import nn
-
+import copy
 from verl import DataProto
 from verl.utils.torch_functional import get_eos_mask, pad_sequence_to_length
 from verl.workers.rollout.base import BaseRollout
@@ -41,7 +41,12 @@ from vllm import SamplingParams
 
 from vllm.sampling_params import GuidedDecodingParams
 from vllm.outputs import RequestOutput
-
+from vllm.entrypoints.chat_utils import (ChatCompletionMessageParam,
+                                         apply_hf_chat_template,
+                                         apply_mistral_chat_template,
+                                         parse_chat_messages)
+import re
+from vllm.inputs import PromptType, TextPrompt, TokensPrompt
 # TODO
 # 1. support pp in vllm
 # 2. passing tokenizer is not necessary? no encoding/decoding is happending here
@@ -56,6 +61,15 @@ def _pre_process_inputs(pad_token_id, prompt_token_ids: torch.Tensor) -> List[in
     token_ids = prompt_token_ids[non_pad_index:].tolist()
     return token_ids
 
+def extract_action(text):
+    # 使用正则表达式匹配Action:后面的内容
+    pattern = r'Action:\s*(.*?)(?:\n|$)'
+    match = re.search(pattern, text)
+    
+    if match:
+        return match.group(1).strip()
+    else:
+        return ""
 
 class AlfRollout(BaseRollout):
 
@@ -140,6 +154,8 @@ class AlfRollout(BaseRollout):
 
         self.pad_token_id = tokenizer.pad_token_id
 
+        self.chat_template = tokenizer.get_chat_template()
+
     @contextmanager
     def update_sampling_params(self, **kwargs):
         # update sampling params
@@ -187,10 +203,32 @@ class AlfRollout(BaseRollout):
         llm: LLM,
         sampling_params: SamplingParams
     ) -> Tuple[List[Dict[str, Any]], List[RequestOutput]]:
-        
-        outputs = self.inference_engine.chat([s["messages"] for s in states], sampling_params=self.sampling_params, use_tqdm=False)
+        # breakpoint()
+        prompts=[]
+        prompts_ids=[]
+        tokenizer = self.inference_engine.get_tokenizer().tokenizer
+        model_config = self.inference_engine.llm_engine.get_model_config()
+        for s in states:
+            conversation, mm_data = parse_chat_messages(
+                s['messages'], model_config, tokenizer)
 
-        breakpoint()
+            prompt_data = apply_hf_chat_template(
+                tokenizer,
+                conversation=conversation,
+                chat_template=None
+            )
+
+            prompt = TextPrompt(prompt=prompt_data)
+            prompt_ids = tokenizer.encode(prompt['prompt'])
+            prompts_ids.append(prompt_ids)
+            prompt['prompt'] = prompt['prompt'] + '<|im_start|>assistant\n'
+            prompts.append(prompt)
+
+        outputs = llm.generate(prompts, sampling_params=sampling_params, use_tqdm=False)
+
+        text = tokenizer.batch_decode(outputs[0], skip_special_tokens=True)
+
+        # breakpoint()
         batch_action = []
         for i, state in enumerate(states):
             if state["skip_flag"] == True:
@@ -199,29 +237,27 @@ class AlfRollout(BaseRollout):
 
             state["messages"].append({
                 "role": "assistant", 
-                "content": outputs[i].outputs[0].text
+                "content": text[i]
             })
-            batch_action.append(extract_action(outputs[i].outputs[0].text))
+            batch_action.append(extract_action(text[i]))
             # Track prompt_tokens to later slice out the completion part
             if state["prompt_tokens"] == -1:
-                state["prompt_tokens"] = len(outputs[i].prompt_token_ids)
+                state["prompt_tokens"] = len(prompts_ids[i])
         
-        return states, batch_action, outputs
+        return states, batch_action, outputs, prompts_ids
 
     @torch.no_grad()
     def generate_sequences(self, prompts: DataProto, **kwargs) -> DataProto:
 
-        breakpoint()
-
         # TODO: only for debug
         self.debug = 1
         self.max_steps = 3
-        self.max_length = self.config.data.max_length
+        self.max_length = 2048
         # rebuild vllm cache engine
         if self.config.free_cache_engine:
             self.inference_engine.init_cache_engine()
 
-        game_file = prompts.batch['game_file']
+        game_file = prompts.non_tensor_batch['game_file']
 
         all_completion_ids = [None] * len(game_file)
         all_completion_mask = [None] * len(game_file)
@@ -269,7 +305,7 @@ class AlfRollout(BaseRollout):
         with self.update_sampling_params(**kwargs):
 
             system_info, task = self.fake_init(game_file)
-            system_prompt = self.get_system_prompt(system_info)
+            system_prompt = system_prompt
 
             states = [{
                 "messages": [
@@ -278,16 +314,16 @@ class AlfRollout(BaseRollout):
                             "role": "system"
                         },
                         {
-                            "content": f"{task}\n\nObservation:{system_info}",
+                            "content": f"{task[i]}\n\nObservation:{system_info[i]}",
                             "role": "user"
                         }
                 ], 
                 "completed": False, 
                 "skip_flag": False,
                 "prompt_tokens": -1
-            } for _ in range(game_file)]
+            } for i in range(len(game_file))]
 
-
+            # breakpoint()
             completion_mask = [[] for _ in states]
             prompt_outputs_ids = [[] for _ in states]
 
@@ -297,9 +333,9 @@ class AlfRollout(BaseRollout):
             max_steps = copy.deepcopy(self.max_steps) 
             while any([s['skip_flag'] != True for s in states]) and max_steps > 0:
                 max_steps -= 1
-                states, batch_action, outputs = self._generate(states, llm, sampling_params)
+                states, batch_action, outputs, prompts_ids = self._generate(states, self.inference_engine, self.sampling_params)
 
-                batch_obs, batch_scores, batch_reward =  self.fake_step(batch_action)
+                batch_obs, batch_scores, batch_reward = self.fake_step(batch_action)
 
                 for i, state in enumerate(states):
                     
@@ -316,10 +352,10 @@ class AlfRollout(BaseRollout):
                         "content": "Observation:" + batch_obs[i]
                     })
                 
-                    prompt_token_ids = outputs[i].prompt_token_ids
-                    token_ids = outputs[i].outputs[0].token_ids
+                    prompt_token_ids = prompts_ids[i]
+                    token_ids = outputs[0][i]
                 
-                    prompt_outputs_ids[i] = prompt_token_ids + list(token_ids)
+                    prompt_outputs_ids[i] = prompt_token_ids + token_ids.tolist()
 
                     pre_prompt_length[i] = len(prompt_token_ids)
                     # if origin_prompt_length[i] == 0:
@@ -345,8 +381,7 @@ class AlfRollout(BaseRollout):
                         "content": "FAIL"
                     })
             
-            final_output = self.inference_engine.get_tokenizer().apply_chat_template([s['messages'] for s in states])
-            breakpoint()
+            final_output = self.inference_engine.get_tokenizer().tokenizer.apply_chat_template([s['messages'] for s in states])
             for i, state in enumerate(states):
                 # 提取完整上下文 all_completion_ids，包括系统消息、用户输入、助手回复等
                 prompt_outputs_ids[i] = final_output[i]
@@ -378,20 +413,20 @@ class AlfRollout(BaseRollout):
                 all_position_ids[i] = position_ids
 
         # 转换为 Tensor 格式
-        all_completion_ids_tensor = torch.tensor(all_completion_ids, dtype=torch.long, device=idx.device)
-        all_completion_mask_tensor = torch.tensor(all_completion_mask, dtype=torch.long, device=idx.device)
-        all_prompt_completion_mask_tensor = torch.tensor(all_prompt_completion_mask, dtype=torch.long, device=idx.device)
-        all_position_ids_tensor = torch.tensor(all_position_ids, dtype=torch.long, device=idx.device)
+        input_ids = torch.tensor(all_completion_ids, dtype=torch.long)
+        input_mask = torch.tensor(all_completion_mask, dtype=torch.long)
+        attention_mask = torch.tensor(all_prompt_completion_mask, dtype=torch.long)
+        position_ids = torch.tensor(all_position_ids, dtype=torch.long)
 
-        breakpoint()
+        # breakpoint()
 
         # all the tp ranks should contain the same data here. data in all ranks are valid
         batch = TensorDict(
             {
-                'input_ids': all_completion_ids_tensor,  # the whole sentences
-                'input_mask': all_completion_mask_tensor, # the assistant is 1
+                'input_ids': input_ids,  # the whole sentences
+                'input_mask': input_mask, # the assistant is 1
                 'attention_mask': attention_mask, # whole sentence is 1
-                'position_ids': all_position_ids_tensor
+                'position_ids': position_ids
             },
             batch_size=batch_size)
 

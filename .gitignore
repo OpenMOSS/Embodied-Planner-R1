@@ -129,3 +129,10 @@ outputs
 data
 
 *.json
+
+docker
+
+tensorboard_log/
+events.*
+
+test.py

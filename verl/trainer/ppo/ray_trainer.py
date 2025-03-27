@@ -517,11 +517,8 @@ class RayPPOTrainer(object):
         sample_scores = []
 
         for test_data in self.val_dataloader:
-            # TODO: need to adjust to support list[str]
             test_batch = DataProto.from_single_dict(test_data)
-            # test_batch = DataProto.from_single_dict(test_data['game_file'])
 
-            # TODO: have bug
             test_batch = test_batch.repeat(repeat_times=self.config.actor_rollout_ref.rollout.val_kwargs.n,
                                            interleave=True)
 
