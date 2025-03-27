@@ -7,7 +7,7 @@ import time
 import logging
 from datetime import datetime
 
-sys.path.append("/inspire/ssd/ws-8207e9e2-e733-4eec-a475-cfa1c36480ba/embodied-multimodality/public/zyfei/open-embodied-r1")
+sys.path.append("/inspire/hdd/ws-8207e9e2-e733-4eec-a475-cfa1c36480ba/embodied-multimodality/qiuxipeng-24028/xpqiu/lji/verl_mod/verl")
 
 from alfworld_server.alfworld_server_lite.tw_env import get_tw_env
 # 配置日志
@@ -24,7 +24,7 @@ logger = logging.getLogger("alfworld_server")
 app = FastAPI()
 
 class TrajRequest(BaseModel):
-    game_file: str
+    game_file: List[str]
     batch_size: int
 
 class ActionRequest(BaseModel):

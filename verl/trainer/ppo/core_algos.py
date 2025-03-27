@@ -128,7 +128,7 @@ def compute_grpo_outcome_advantage(token_level_rewards: torch.Tensor,
             shape: (bs, response_length)
     """
 
-    breakpoint()
+    # breakpoint()
     response_length = token_level_rewards.shape[-1]
     scores = token_level_rewards.sum(dim=-1)
 

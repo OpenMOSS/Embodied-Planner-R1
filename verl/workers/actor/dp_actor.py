@@ -184,7 +184,7 @@ class DataParallelPPOActor(BasePPOActor):
                 position_ids = position_ids.transpose(0, 1)  # (bsz, 3, seqlen) -> (3, bsz, seqlen)
 
             if self.use_remove_padding:
-                breakpoint()
+                # breakpoint()
                 input_ids_rmpad, indices, *_ = unpad_input(input_ids.unsqueeze(-1),
                                                            attention_mask)  # input_ids_rmpad (total_nnz, ...)
                 input_ids_rmpad = input_ids_rmpad.transpose(0, 1)  # (1, total_nnz)
@@ -219,7 +219,7 @@ class DataParallelPPOActor(BasePPOActor):
                                            use_cache=False)  # prevent model thinks we are generating
                 logits_rmpad = output.logits.squeeze(0)  # (total_nnz, vocab_size)
 
-                breakpoint()
+                # breakpoint()
                 logits_rmpad.div_(temperature)
 
                 # compute entropy
@@ -247,7 +247,7 @@ class DataParallelPPOActor(BasePPOActor):
                                            seqlen=seqlen)
 
                 # only return assistant part:
-                breakpoint()
+                # breakpoint()
                 entropy = full_entropy.squeeze(-1)[:,:-1] * input_mask[:,1:]
                 log_probs = full_log_probs.squeeze(-1)[:,:-1] * input_mask[:,1:]
 
@@ -301,7 +301,7 @@ class DataParallelPPOActor(BasePPOActor):
         """
         # set to eval
 
-        breakpoint()
+        # breakpoint()
         self.actor_module.eval()
 
         micro_batch_size = data.meta_info['micro_batch_size']
@@ -361,7 +361,7 @@ class DataParallelPPOActor(BasePPOActor):
         """
         # set to eval
 
-        breakpoint()
+        # breakpoint()
         self.actor_module.eval()
 
         micro_batch_size = data.meta_info['micro_batch_size']
@@ -402,7 +402,7 @@ class DataParallelPPOActor(BasePPOActor):
         return log_probs
     
     def update_policy(self, data: DataProto):
-        breakpoint()
+        # breakpoint()
         # make sure we are in training mode
         self.actor_module.train()
 
@@ -506,7 +506,7 @@ class DataParallelPPOActor(BasePPOActor):
         return metrics
 
     def multi_turn_update_policy(self, data: DataProto):
-        breakpoint()
+        # breakpoint()
         # make sure we are in training mode
         self.actor_module.train()
 
@@ -569,12 +569,12 @@ class DataParallelPPOActor(BasePPOActor):
 
                     pg_loss, pg_clipfrac, ppo_kl = core_algos.compute_policy_loss(old_log_prob=old_log_prob,
                                                                                   log_prob=log_prob,
-                                                                                  advantages=advantages,
-                                                                                  eos_mask=input_mask,
+                                                                                  advantages=advantages[:,1:],
+                                                                                  eos_mask=input_mask[:,1:],
                                                                                   cliprange=clip_ratio)
                     # compute entropy loss from entropy
                     # entropy_loss = verl_F.masked_mean(entropy, response_mask)
-                    entropy_loss = verl_F.masked_mean(entropy, input_mask)
+                    entropy_loss = verl_F.masked_mean(entropy, input_mask[:,1:])
 
                     # compute policy loss
                     policy_loss = pg_loss - entropy_loss * entropy_coeff
@@ -585,7 +585,7 @@ class DataParallelPPOActor(BasePPOActor):
                         kld = core_algos.kl_penalty(logprob=log_prob,
                                                     ref_logprob=ref_log_prob,
                                                     kl_penalty=self.config.kl_loss_type)
-                        kl_loss = masked_mean(kld, response_mask)
+                        kl_loss = masked_mean(kld, input_mask[:,1:])
 
                         policy_loss = policy_loss + kl_loss * self.config.kl_loss_coef
                         metrics['actor/kl_loss'] = kl_loss.detach().item()

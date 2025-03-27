@@ -25,7 +25,7 @@ from enum import Enum
 from pprint import pprint
 from typing import Type, Dict
 from copy import deepcopy
-
+from tqdm import tqdm
 import ray
 import numpy as np
 from codetiming import Timer
@@ -170,8 +170,6 @@ def compute_advantage(data: DataProto, adv_estimator, gamma=1.0, lam=1.0, num_re
     # prepare response group
     # TODO: add other ways to estimate advantages
 
-    breakpoint()
-
     if adv_estimator == AdvantageEstimator.GAE:
         values = data.batch['values']
         responses = data.batch['responses']
@@ -189,7 +187,6 @@ def compute_advantage(data: DataProto, adv_estimator, gamma=1.0, lam=1.0, num_re
 
     elif adv_estimator == AdvantageEstimator.GRPO:
         if 'input_mask' in data.batch:
-            breakpoint()
             token_level_rewards = data.batch['token_level_rewards']
             index = data.non_tensor_batch['uid']
             attention_mask = data.batch['attention_mask']
@@ -292,7 +289,7 @@ class RayPPOTrainer(object):
                  val_reward_fn=None):
 
         # assert torch.cuda.is_available(), 'cuda must be available on driver'
-        # breakpoint()
+        # # breakpoint()
         self.tokenizer = tokenizer
         self.processor = processor
         self.config = config
@@ -341,7 +338,7 @@ class RayPPOTrainer(object):
 
     def _validate_config(self):
 
-        # breakpoint()
+        # # breakpoint()
         config = self.config
         # number of GPUs total
         n_gpus = config.trainer.n_gpus_per_node * config.trainer.nnodes
@@ -436,7 +433,7 @@ class RayPPOTrainer(object):
     def _create_dataloader(self):
         # TODO: we have to make sure the batch size is divisible by the dp size
 
-        # breakpoint()
+        # # breakpoint()
 
         self.train_dataset = JSONDataset(self.config.data.train_files)
         
@@ -461,7 +458,7 @@ class RayPPOTrainer(object):
             # Validation datasets are sent to inference engines as a whole batch,
             # which will schedule the memory themselves.
             batch_size=len(self.val_dataset),
-            num_workers=8,
+            num_workers=4,
             shuffle=False,
             drop_last=False,
             collate_fn=collate_fn)
@@ -541,7 +538,8 @@ class RayPPOTrainer(object):
                 'do_sample': self.config.actor_rollout_ref.rollout.val_kwargs.do_sample,
                 'validate': True,
                 'system_prompt': self.config.data.system_prompt,
-                'max_length': self.config.data.max_length
+                'max_length': self.config.data.max_length,
+                'max_steps': self.config.data.max_steps
             }
             print(f'test_gen_batch meta info: {test_gen_batch.meta_info}')
 
@@ -571,7 +569,7 @@ class RayPPOTrainer(object):
             reward_tensor_lst.append(reward_tensor)
             # data_source_lst.append(test_batch.non_tensor_batch.get('data_source', ['unknown'] * reward_tensor.shape[0]))
 
-        # self._maybe_log_val_generations(inputs=sample_inputs, outputs=sample_outputs, scores=sample_scores)
+        self._maybe_log_val_generations(inputs=sample_inputs, outputs=sample_outputs, scores=sample_scores)
 
         reward_tensor = torch.cat(reward_tensor_lst, dim=0).sum(-1).cpu()  # (batch_size,)
         metric_dict = {}
@@ -596,7 +594,7 @@ class RayPPOTrainer(object):
     def init_workers(self):
         """Init resource pool and worker group"""
 
-        # breakpoint()
+        # # breakpoint()
         self.resource_pool_manager.create_resource_pool()
 
         self.resource_pool_to_cls = {pool: {} for pool in self.resource_pool_manager.resource_pool_dict.values()}
@@ -793,6 +791,9 @@ class RayPPOTrainer(object):
             if self.config.trainer.get('val_only', False):
                 return
 
+        # add tqdm
+        progress_bar = tqdm(total=self.total_training_steps, initial=self.global_steps, desc="Training Progress")
+
         # we start from step 1
         self.global_steps += 1
         last_val_metrics = None
@@ -801,15 +802,19 @@ class RayPPOTrainer(object):
             for batch_dict in self.train_dataloader:
                 metrics = {}
                 timing_raw = {}
-                breakpoint()
+                # breakpoint()
                 batch: DataProto = DataProto.from_single_dict(batch_dict)
+                batch.non_tensor_batch['uid'] = np.array([str(uuid.uuid4()) for _ in range(len(batch.batch))],
+                                            dtype=object)
                 batch = batch.repeat(repeat_times=self.config.actor_rollout_ref.rollout.n, interleave=True)
-
                 # pop those keys for generation
                 gen_batch = batch.pop(
                     batch_keys=['_dummy'],
-                    non_tensor_batch_keys=['game_file'],
+                    non_tensor_batch_keys=['game_file', 'uid'],
                 )
+                gen_batch.meta_info['system_prompt'] = self.config.data.system_prompt
+                gen_batch.meta_info['max_steps'] = self.config.data.max_steps
+                gen_batch.meta_info['max_length'] = self.config.data.max_length
 
                 is_last_step = self.global_steps >= self.total_training_steps
 
@@ -835,10 +840,7 @@ class RayPPOTrainer(object):
 
                             del gen_baseline_batch, gen_baseline_output
 
-                    # batch.non_tensor_batch['uid'] = np.array([str(uuid.uuid4()) for _ in range(len(batch.batch))],
-                    #                                          dtype=object)
-                    # repeat to align with repeated responses in rollout
-                    batch = gen_batch_output
+                    batch = gen_batch.union(gen_batch_output)
 
                     # balance the number of valid tokens on each dp rank.
                     # Note that this breaks the order of data inside the batch.
@@ -857,7 +859,7 @@ class RayPPOTrainer(object):
                     if self.use_reference_policy:
                         # compute reference log_prob
                         with _timer('ref', timing_raw):
-                            ref_log_prob = self.ref_policy_wg.compute_ref_log_prob(batch)
+                            ref_log_prob = self.ref_policy_wg.compute_ref_multi_turn_log_prob(batch)
                             batch = batch.union(ref_log_prob)
 
                     # compute values
@@ -889,7 +891,7 @@ class RayPPOTrainer(object):
                             batch.batch['token_level_rewards'] = batch.batch['token_level_scores']
 
                         # compute advantages, executed on the driver process
-                        breakpoint()
+                        # breakpoint()
                         batch = compute_advantage(batch,
                                                   adv_estimator=self.config.algorithm.adv_estimator,
                                                   gamma=self.config.algorithm.gamma,
@@ -907,7 +909,7 @@ class RayPPOTrainer(object):
                     if self.config.trainer.critic_warmup <= self.global_steps:
                         # update actor
                         with _timer('update_actor', timing_raw):
-                            actor_output = self.actor_rollout_wg.update_actor(batch)
+                            actor_output = self.actor_rollout_wg.multi_turn_update_actor(batch)
                         actor_output_metrics = reduce_metrics(actor_output.meta_info['metrics'])
                         metrics.update(actor_output_metrics)
 
@@ -925,7 +927,7 @@ class RayPPOTrainer(object):
                         with _timer('save_checkpoint', timing_raw):
                             self._save_checkpoint()
 
-                breakpoint()
+                # breakpoint()
                 # collect metrics
                 metrics.update(compute_multi_turn_data_metrics(batch=batch, use_critic=self.use_critic))
                 metrics.update(compute_multi_turn_timing_metrics(batch=batch, timing_raw=timing_raw))

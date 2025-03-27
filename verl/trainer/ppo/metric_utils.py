@@ -155,7 +155,7 @@ def compute_timing_metrics(batch: DataProto, timing_raw: Dict[str, float]) -> Di
     }
 
 def compute_multi_turn_timing_metrics(batch: DataProto, timing_raw: Dict[str, float]) -> Dict[str, Any]:
-    breakpoint()
+    # breakpoint()
     # response_info = _compute_response_info(batch)
     # num_prompt_tokens = torch.sum(response_info['prompt_length']).item()
     # num_response_tokens = torch.sum(response_info['response_length']).item()
@@ -200,7 +200,7 @@ def compute_throughout_metrics(batch: DataProto, timing_raw: Dict[str, float], n
 def compute_multi_turn_data_metrics(batch: DataProto, use_critic: bool = True) -> Dict[str, Any]:
     # TODO: add response length
 
-    breakpoint()
+    # breakpoint()
     sequence_score = batch.batch['token_level_scores'].sum(-1)
     sequence_reward = batch.batch['token_level_rewards'].sum(-1)
 
@@ -211,8 +211,8 @@ def compute_multi_turn_data_metrics(batch: DataProto, use_critic: bool = True) -
 
     response_length = input_mask.sum(-1).float()
 
-    valid_adv = torch.masked_select(advantages, input_mask)
-    valid_returns = torch.masked_select(returns, input_mask)
+    valid_adv = torch.masked_select(advantages, input_mask.bool())
+    valid_returns = torch.masked_select(returns, input_mask.bool())
 
     if use_critic:
         values = batch.batch['values']

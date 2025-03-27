@@ -136,3 +136,4 @@ tensorboard_log/
 events.*
 
 test.py
+*log*

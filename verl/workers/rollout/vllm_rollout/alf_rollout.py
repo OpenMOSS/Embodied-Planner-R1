@@ -32,6 +32,8 @@ import torch.distributed
 from tensordict import TensorDict
 from torch import nn
 import copy
+import re
+import requests
 from verl import DataProto
 from verl.utils.torch_functional import get_eos_mask, pad_sequence_to_length
 from verl.workers.rollout.base import BaseRollout
@@ -73,7 +75,7 @@ def extract_action(text):
 
 class AlfRollout(BaseRollout):
 
-    def __init__(self, actor_module: nn.Module, config: DictConfig, tokenizer, model_hf_config, **kwargs):
+    def __init__(self, actor_module: nn.Module, config: DictConfig, tokenizer, model_hf_config, server_url, **kwargs):
         """A vLLM rollout. It requires the module is supported by the vllm.
 
         Args:
@@ -133,6 +135,7 @@ class AlfRollout(BaseRollout):
 
         # Offload vllm model to reduce peak memory usage
         self.inference_engine.offload_model_weights()
+        # self.inference_engine.sleep(1)
 
         kwargs = dict(
             n=1,
@@ -151,10 +154,14 @@ class AlfRollout(BaseRollout):
 
         print(f"kwargs: {kwargs}")
         self.sampling_params = SamplingParams(**kwargs)
+        # self.sampling_params = kwargs
 
         self.pad_token_id = tokenizer.pad_token_id
 
-        self.chat_template = tokenizer.get_chat_template()
+        # self.chat_template = tokenizer.get_chat_template()
+        self.debug = 0
+        self.server_url = server_url
+        self.ping()
 
     @contextmanager
     def update_sampling_params(self, **kwargs):
@@ -172,17 +179,35 @@ class AlfRollout(BaseRollout):
         for key, value in old_sampling_params_args.items():
             setattr(self.sampling_params, key, value)
 
+    def ping(self):
+        repeat_time = 0
+        max_waiting_time = 100000
+        while True:
+            try:
+                res = requests.get(self.server_url + "/health")
+                if res.status_code == 200:
+                    return True
+            except:
+                assert repeat_time < max_waiting_time, f"server is not ready in {str(max_waiting_time)} s, please check the server status."
+                repeat_time += 1
+                logging.info(f"server is not ready, wait for {str(repeat_time * 5)} s")
+                time.sleep(repeat_time * 5)
+
     def fake_init(self, game_file, **kwargs):
         if self.debug:
             res = {}
             observation_str = ["You arrive at shelf 1. On the shelf 1, you see a candle 2, and a soapbar 1."] * len(game_file)
             task_str = ["put soapbar into shelf"] * len(game_file)
         else:
-            res = requests.post(self.server_url + "/reset", json={'game_file': game_file, 'batch_size': self.batch_size})
+            # /inspire/hdd/ws-8207e9e2-e733-4eec-a475-cfa1c36480ba/embodied-multimodality/qiuxipeng-24028/xpqiu/lji/open-embodied-r1/alfworld_server/data/json_2.1.1/valid_seen/pick_cool_then_place_in_recep-Pan-None-DiningTable-7/trial_T20190908_232648_241836/game.tw-pddl
+            res = requests.post(self.server_url + "/reset", json={'game_file': game_file.tolist(), 'batch_size': len(game_file)}) 
+            res = res.json()['observations']
 
-            res = res.json()['observations'][0]
+            outputs = [r.split("\n\n") for r in res]
+            _, observation_str, task_str = zip(*outputs)
 
-            welcome, observation_str, task_str = res.split("\n\n")
+            observation_str = list(observation_str)
+            task_str = list(task_str)
         return observation_str, task_str
 
     def fake_step(self, batch_steps, **kwargs):
@@ -206,6 +231,7 @@ class AlfRollout(BaseRollout):
         # breakpoint()
         prompts=[]
         prompts_ids=[]
+        prompt_completions_ids=[]
         tokenizer = self.inference_engine.get_tokenizer().tokenizer
         model_config = self.inference_engine.llm_engine.get_model_config()
         for s in states:
@@ -223,7 +249,7 @@ class AlfRollout(BaseRollout):
             prompts_ids.append(prompt_ids)
             prompt['prompt'] = prompt['prompt'] + '<|im_start|>assistant\n'
             prompts.append(prompt)
-
+        # breakpoint()
         outputs = llm.generate(prompts, sampling_params=sampling_params, use_tqdm=False)
 
         text = tokenizer.batch_decode(outputs[0], skip_special_tokens=True)
@@ -233,26 +259,40 @@ class AlfRollout(BaseRollout):
         for i, state in enumerate(states):
             if state["skip_flag"] == True:
                 batch_action.append("")
+                prompt_completions_ids.append(prompts_ids[i])
                 continue
 
             state["messages"].append({
                 "role": "assistant", 
                 "content": text[i]
             })
+
+            conversation, mm_data = parse_chat_messages(
+                state['messages'], model_config, tokenizer)
+
+            prompt_data = apply_hf_chat_template(
+                tokenizer,
+                conversation=conversation,
+                chat_template=None
+            )
+
+            prompt_completion = TextPrompt(prompt=prompt_data)
+            prompt_completion_ids = tokenizer.encode(prompt_completion['prompt'])
+            prompt_completions_ids.append(prompt_completion_ids)
             batch_action.append(extract_action(text[i]))
             # Track prompt_tokens to later slice out the completion part
             if state["prompt_tokens"] == -1:
                 state["prompt_tokens"] = len(prompts_ids[i])
         
-        return states, batch_action, outputs, prompts_ids
+        return states, batch_action, prompt_completions_ids, prompts_ids
 
     @torch.no_grad()
     def generate_sequences(self, prompts: DataProto, **kwargs) -> DataProto:
-
+        # breakpoint()
         # TODO: only for debug
-        self.debug = 1
-        self.max_steps = 3
-        self.max_length = 2048
+        # self.debug = 1
+        self.max_steps = prompts.meta_info['max_steps']
+        self.max_length = prompts.meta_info['max_length']
         # rebuild vllm cache engine
         if self.config.free_cache_engine:
             self.inference_engine.init_cache_engine()
@@ -271,6 +311,7 @@ class AlfRollout(BaseRollout):
 
         # used to construct attention_mask
         eos_token_id = prompts.meta_info['eos_token_id']
+        system_prompt = prompts.meta_info['system_prompt']
 
         batch_size = len(game_file)
 
@@ -305,6 +346,7 @@ class AlfRollout(BaseRollout):
         with self.update_sampling_params(**kwargs):
 
             system_info, task = self.fake_init(game_file)
+            # system_prompt = self.get_system_prompt(system_info)
             system_prompt = system_prompt
 
             states = [{
@@ -333,7 +375,7 @@ class AlfRollout(BaseRollout):
             max_steps = copy.deepcopy(self.max_steps) 
             while any([s['skip_flag'] != True for s in states]) and max_steps > 0:
                 max_steps -= 1
-                states, batch_action, outputs, prompts_ids = self._generate(states, self.inference_engine, self.sampling_params)
+                states, batch_action, prompt_completions_ids, prompts_ids = self._generate(states, self.inference_engine, self.sampling_params)
 
                 batch_obs, batch_scores, batch_reward = self.fake_step(batch_action)
 
@@ -352,20 +394,20 @@ class AlfRollout(BaseRollout):
                         "content": "Observation:" + batch_obs[i]
                     })
                 
-                    prompt_token_ids = prompts_ids[i]
-                    token_ids = outputs[0][i]
+                    # prompt_token_ids = prompts_ids[i]
+                    # token_ids = outputs[0][i]
                 
-                    prompt_outputs_ids[i] = prompt_token_ids + token_ids.tolist()
+                    # prompt_outputs_ids[i] = prompt_token_ids + token_ids.tolist()
 
-                    pre_prompt_length[i] = len(prompt_token_ids)
+                    # pre_prompt_length[i] = len(prompt_token_ids)
                     # if origin_prompt_length[i] == 0:
                     #     # origin_prompt_idx is the first prompt
                     #     origin_prompt_length[i] = pre_prompt_length[i]
-                    completion_mask[i].extend([0 for _ in range(len(completion_mask[i]), pre_prompt_length[i])])
+                    completion_mask[i].extend([0 for _ in range(len(completion_mask[i]), len(prompts_ids[i]))])
 
-                    completion_mask[i].extend([1 for _ in range(len(token_ids))])
+                    completion_mask[i].extend([1 for _ in range(len(completion_mask[i]), len(prompt_completions_ids[i]))])
 
-                    if len(prompt_token_ids) + len(token_ids) > self.max_length:
+                    if len(prompt_completions_ids[i]) > self.max_length:
                         states[i]["skip_flag"] = True
             
             for i, state in enumerate(states):

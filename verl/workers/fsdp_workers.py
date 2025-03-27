@@ -317,7 +317,8 @@ class ActorRolloutRefWorker(Worker):
             rollout = AlfRollout(actor_module=self.actor_module_fsdp,
                                     config=self.config.rollout,
                                     tokenizer=self.tokenizer,
-                                    model_hf_config=self.actor_model_config)
+                                    model_hf_config=self.actor_model_config,
+                                    server_url=self.config.rollout.url)
 
             log_gpu_memory_usage(f'After building {rollout_name} rollout', logger=None)
             if torch.distributed.get_world_size() == 1:
@@ -501,6 +502,52 @@ class ActorRolloutRefWorker(Worker):
         return output
 
     @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
+    def multi_turn_update_actor(self, data: DataProto):
+        # Support all hardwares
+        data = data.to(torch.cuda.current_device())
+
+        assert self._is_actor
+        if self._is_offload_param:
+            load_fsdp_model_to_gpu(self.actor_module_fsdp)
+        if self._is_offload_optimizer:
+            load_fsdp_optimizer(optimizer=self.actor_optimizer, device_id=torch.cuda.current_device())
+
+        log_gpu_memory_usage('Before update policy', logger=logger)
+
+        with self.ulysses_sharding_manager:
+            data = self.ulysses_sharding_manager.preprocess_data(data=data)
+            # perform training
+            with Timer(name='update_policy', logger=None) as timer:
+                metrics = self.actor.multi_turn_update_policy(data=data)
+            delta_time = timer.last
+            global_num_tokens = data.meta_info['global_token_num']
+            estimated_flops, promised_flops = self.flops_counter.estimate_flops(global_num_tokens, delta_time)
+            metrics[
+                'perf/mfu/actor'] = estimated_flops * self.config.actor.ppo_epochs / promised_flops / self.world_size
+            metrics['perf/max_memory_allocated_gb'] = torch.cuda.max_memory_allocated() / (1024**3)
+            metrics['perf/max_memory_reserved_gb'] = torch.cuda.max_memory_reserved() / (1024**3)
+            metrics['perf/cpu_memory_used_gb'] = psutil.virtual_memory().used / (1024**3)
+
+            self.actor_lr_scheduler.step()
+            lr = self.actor_lr_scheduler.get_last_lr()[0]
+            metrics['actor/lr'] = lr
+
+            log_gpu_memory_usage('After update policy', logger=logger)
+
+            # TODO: here, we should return all metrics
+            output = DataProto(meta_info={'metrics': metrics})
+
+            output = self.ulysses_sharding_manager.postprocess_data(data=output)
+            output = output.to('cpu')
+
+        if self._is_offload_param:
+            offload_fsdp_model_to_cpu(self.actor_module_fsdp)
+        if self._is_offload_optimizer:
+            offload_fsdp_optimizer(optimizer=self.actor_optimizer)
+
+        return output
+
+    @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
     def generate_sequences(self, prompts: DataProto):
         # Support all hardwares
         prompts = prompts.to(torch.cuda.current_device())
@@ -576,7 +623,7 @@ class ActorRolloutRefWorker(Worker):
 
     @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
     def compute_multi_turn_log_prob(self, data: DataProto):
-        breakpoint()
+        # breakpoint()
         assert self._is_actor
         if self._is_offload_param:
             load_fsdp_model_to_gpu(self.actor_module_fsdp)
@@ -639,7 +686,7 @@ class ActorRolloutRefWorker(Worker):
     @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
     def compute_ref_multi_turn_log_prob(self, data: DataProto):
         assert self._is_ref
-        breakpoint()
+        # breakpoint()
         # Support all hardwares
         data = data.to(torch.cuda.current_device())
 

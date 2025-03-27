@@ -49,3 +49,16 @@ from torch.utils.data import Dataset
 # print(tokenizer)
 
 
+import requests
+import sys
+sys.path.append("/inspire/hdd/ws-8207e9e2-e733-4eec-a475-cfa1c36480ba/embodied-multimodality/qiuxipeng-24028/xpqiu/lji/verl_mod/verl")
+from alfworld_server.alfworld_server_lite.tw_env import get_tw_env
+url="http://localhost:8000"
+
+# res = requests.get(url + "/health")
+game_file = ['/inspire/hdd/ws-8207e9e2-e733-4eec-a475-cfa1c36480ba/embodied-multimodality/qiuxipeng-24028/xpqiu/lji/open-embodied-r1/alfworld_server/data/json_2.1.1/valid_seen/pick_cool_then_place_in_recep-Pan-None-DiningTable-7/trial_T20190908_232648_241836/game.tw-pddl']
+# res = requests.post(url + "/reset", json={'game_file': game_file, 'batch_size': 2}) 
+# print(res)
+
+env = get_tw_env(game_file=game_file, batch_size=2)
+print(env.reset())
