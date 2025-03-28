@@ -321,8 +321,8 @@ class ActorRolloutRefWorker(Worker):
                                     server_url=self.config.rollout.url)
 
             log_gpu_memory_usage(f'After building {rollout_name} rollout', logger=None)
-            if torch.distributed.get_world_size() == 1:
-                self.config.rollout.load_format = 'dummy_hf'
+            # if torch.distributed.get_world_size() == 1:
+            self.config.rollout.load_format = 'dummy_hf'
             rollout_sharding_manager = FSDPVLLMShardingManager(module=self.actor_module_fsdp,
                                                                inference_engine=rollout.inference_engine,
                                                                model_config=self.actor_model_config,
