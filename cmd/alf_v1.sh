@@ -2,7 +2,7 @@ cd /inspire/hdd/ws-8207e9e2-e733-4eec-a475-cfa1c36480ba/embodied-multimodality/q
 
 final_folder="/inspire/hdd/ws-8207e9e2-e733-4eec-a475-cfa1c36480ba/embodied-multimodality/qiuxipeng-24028/xpqiu/lji/verl_mod/verl/outputs_demo"  
 
-bash_path=/inspire/hdd/ws-8207e9e2-e733-4eec-a475-cfa1c36480ba/embodied-multimodality/qiuxipeng-24028/xpqiu/lji/verl_mod/examples/grpo_trainer/alf_demo.sh
+bash_path=/inspire/hdd/ws-8207e9e2-e733-4eec-a475-cfa1c36480ba/embodied-multimodality/qiuxipeng-24028/xpqiu/lji/verl_mod/examples/grpo_trainer/alf_v1.sh
 
 
 project_name=$(basename "$bash_path" .sh)
@@ -29,7 +29,6 @@ else
     echo "server Process ID: $server_pid Check logs in ${server_logging_folder}/"
 fi
 
-ray start --head
 cmd="bash ${bash_path}"
 echo "Running $cmd"
 

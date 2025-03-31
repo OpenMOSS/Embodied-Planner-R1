@@ -37,18 +37,10 @@ import requests
 from verl import DataProto
 from verl.utils.torch_functional import get_eos_mask, pad_sequence_to_length
 from verl.workers.rollout.base import BaseRollout
-from verl.third_party.vllm import LLM, vllm_version
-from verl.third_party.vllm import parallel_state as vllm_ps
-from vllm import SamplingParams
-
-from vllm.sampling_params import GuidedDecodingParams
+from vllm.distributed import parallel_state as vllm_ps
+from vllm import LLM, SamplingParams
+from verl.third_party.vllm import vllm_version
 from vllm.outputs import RequestOutput
-from vllm.entrypoints.chat_utils import (ChatCompletionMessageParam,
-                                         apply_hf_chat_template,
-                                         apply_mistral_chat_template,
-                                         parse_chat_messages)
-import re
-from vllm.inputs import PromptType, TextPrompt, TokensPrompt
 # TODO
 # 1. support pp in vllm
 # 2. passing tokenizer is not necessary? no encoding/decoding is happending here
@@ -75,7 +67,7 @@ def extract_action(text):
 
 class AlfRollout(BaseRollout):
 
-    def __init__(self, actor_module: nn.Module, config: DictConfig, tokenizer, model_hf_config, server_url, **kwargs):
+    def __init__(self, model_path: str, config: DictConfig, tokenizer, model_hf_config, server_url, **kwargs):
         """A vLLM rollout. It requires the module is supported by the vllm.
 
         Args:
@@ -102,9 +94,8 @@ class AlfRollout(BaseRollout):
             os.environ['MEGATRON_IMPORT_TIMERS'] = '0'
             train_tp = kwargs.get('train_tp', None)
             num_tp_per_train_tp = train_tp // tensor_parallel_size
-            if vllm_version in ('0.4.2', '0.5.4', '0.6.3'):
-                vllm_ps.initialize_parallel_state(tensor_model_parallel_size=tensor_parallel_size,
-                                                  num_tp_per_train_tp=num_tp_per_train_tp)
+            vllm_ps.initialize_parallel_state(tensor_model_parallel_size=tensor_parallel_size,
+                                              num_tp_per_train_tp=num_tp_per_train_tp)
 
         assert model_hf_config.max_position_embeddings >= config.prompt_length + config.response_length, \
             "model context length should be greater than total sequence length"
@@ -116,26 +107,35 @@ class AlfRollout(BaseRollout):
         if max_num_batched_tokens < max_model_len and self.config.enable_chunked_prefill:
             raise ValueError('Enable chunked prefill, max_num_batched_tokens is smaller than max_model_len, \
                              please increase max_num_batched_tokens or disable chunked prefill')
+        
 
-        self.inference_engine = LLM(
-            actor_module,
-            tokenizer=tokenizer,
-            model_hf_config=model_hf_config,
-            tensor_parallel_size=tensor_parallel_size,
-            dtype=config.dtype,
-            enforce_eager=config.enforce_eager,
-            gpu_memory_utilization=config.gpu_memory_utilization,
-            skip_tokenizer_init=False,
-            max_model_len=max_model_len,
-            load_format=config.load_format,
-            disable_log_stats=config.disable_log_stats,
-            max_num_batched_tokens=max_num_batched_tokens,
-            enable_chunked_prefill=config.enable_chunked_prefill,
-        )
+        if vllm_version == '0.7.0+': 
+            self.inference_engine = LLM(
+                model=model_path,
+                # actor_module_path,
+                # tokenizer=model_path,
+                # model_hf_config=model_hf_config,
+                enable_sleep_mode=True,
+                tensor_parallel_size=tensor_parallel_size,
+                distributed_executor_backend="external_launcher",
+                dtype=config.dtype,
+                enforce_eager=config.enforce_eager,
+                gpu_memory_utilization=config.gpu_memory_utilization,
+                disable_custom_all_reduce=True,
+                skip_tokenizer_init=False,
+                max_model_len=max_model_len,
+                # load_format=config.load_format,
+                disable_log_stats=config.disable_log_stats,
+                max_num_batched_tokens=max_num_batched_tokens,
+                enable_chunked_prefill=config.enable_chunked_prefill,
+                enable_prefix_caching=True,
+            )
+        else:
+            raise NotImplementedError
 
         # Offload vllm model to reduce peak memory usage
-        self.inference_engine.offload_model_weights()
-        # self.inference_engine.sleep(1)
+        # self.inference_engine.offload_model_weights()
+        self.inference_engine.sleep(1)
 
         kwargs = dict(
             n=1,
@@ -143,8 +143,8 @@ class AlfRollout(BaseRollout):
             max_tokens=config.response_length,
         )
 
-        # we may detokenize the result all together later
-        if vllm_version in ('0.4.2', '0.5.4', '0.6.3'):
+        # # we may detokenize the result all together later
+        if vllm_version != '0.3.1':
             kwargs['detokenize'] = False
 
         # supporting adding any sampling params from the config file
@@ -226,65 +226,28 @@ class AlfRollout(BaseRollout):
         self,
         states: List[Dict[str, Any]],
         llm: LLM,
-        sampling_params: SamplingParams
-    ) -> Tuple[List[Dict[str, Any]], List[RequestOutput]]:
-        # breakpoint()
-        prompts=[]
-        prompts_ids=[]
-        prompt_completions_ids=[]
-        tokenizer = self.inference_engine.get_tokenizer().tokenizer
-        model_config = self.inference_engine.llm_engine.get_model_config()
-        for s in states:
-            conversation, mm_data = parse_chat_messages(
-                s['messages'], model_config, tokenizer)
+        sampling_params: SamplingParams) -> Tuple[List[Dict[str, Any]], List[RequestOutput]]:
 
-            prompt_data = apply_hf_chat_template(
-                tokenizer,
-                conversation=conversation,
-                chat_template=None
-            )
-
-            prompt = TextPrompt(prompt=prompt_data)
-            prompt_ids = tokenizer.encode(prompt['prompt'])
-            prompts_ids.append(prompt_ids)
-            prompt['prompt'] = prompt['prompt'] + '<|im_start|>assistant\n'
-            prompts.append(prompt)
-        # breakpoint()
-        outputs = llm.generate(prompts, sampling_params=sampling_params, use_tqdm=False)
-
-        text = tokenizer.batch_decode(outputs[0], skip_special_tokens=True)
-
+        outputs = self.inference_engine.chat([s["messages"] for s in states], sampling_params=self.sampling_params, use_tqdm=False)
+        # print(outputs)
         # breakpoint()
         batch_action = []
         for i, state in enumerate(states):
             if state["skip_flag"] == True:
                 batch_action.append("")
-                prompt_completions_ids.append(prompts_ids[i])
                 continue
-
+            
+            text = self.inference_engine.get_tokenizer().decode(outputs[i].outputs[0].token_ids, skip_special_tokens=True)
             state["messages"].append({
                 "role": "assistant", 
-                "content": text[i]
+                "content": text
             })
-
-            conversation, mm_data = parse_chat_messages(
-                state['messages'], model_config, tokenizer)
-
-            prompt_data = apply_hf_chat_template(
-                tokenizer,
-                conversation=conversation,
-                chat_template=None
-            )
-
-            prompt_completion = TextPrompt(prompt=prompt_data)
-            prompt_completion_ids = tokenizer.encode(prompt_completion['prompt'])
-            prompt_completions_ids.append(prompt_completion_ids)
-            batch_action.append(extract_action(text[i]))
+            batch_action.append(extract_action(text))
             # Track prompt_tokens to later slice out the completion part
             if state["prompt_tokens"] == -1:
-                state["prompt_tokens"] = len(prompts_ids[i])
+                state["prompt_tokens"] = len(outputs[i].prompt_token_ids)
         
-        return states, batch_action, prompt_completions_ids, prompts_ids
+        return states, batch_action, outputs
 
     @torch.no_grad()
     def generate_sequences(self, prompts: DataProto, **kwargs) -> DataProto:
@@ -375,8 +338,8 @@ class AlfRollout(BaseRollout):
             max_steps = copy.deepcopy(self.max_steps) 
             while any([s['skip_flag'] != True for s in states]) and max_steps > 0:
                 max_steps -= 1
-                states, batch_action, prompt_completions_ids, prompts_ids = self._generate(states, self.inference_engine, self.sampling_params)
-
+                states, batch_action, outputs = self._generate(states, self.inference_engine, self.sampling_params)
+                # breakpoint()
                 batch_obs, batch_scores, batch_reward = self.fake_step(batch_action)
 
                 for i, state in enumerate(states):
@@ -394,20 +357,20 @@ class AlfRollout(BaseRollout):
                         "content": "Observation:" + batch_obs[i]
                     })
                 
-                    # prompt_token_ids = prompts_ids[i]
-                    # token_ids = outputs[0][i]
+                    prompt_token_ids = outputs[i].prompt_token_ids
+                    token_ids = outputs[i].outputs[0].token_ids
                 
-                    # prompt_outputs_ids[i] = prompt_token_ids + token_ids.tolist()
+                    prompt_outputs_ids[i] = prompt_token_ids + list(token_ids)
 
-                    # pre_prompt_length[i] = len(prompt_token_ids)
+                    pre_prompt_length[i] = len(prompt_token_ids)
                     # if origin_prompt_length[i] == 0:
                     #     # origin_prompt_idx is the first prompt
                     #     origin_prompt_length[i] = pre_prompt_length[i]
-                    completion_mask[i].extend([0 for _ in range(len(completion_mask[i]), len(prompts_ids[i]))])
+                    completion_mask[i].extend([0 for _ in range(len(completion_mask[i]), pre_prompt_length[i])])
 
-                    completion_mask[i].extend([1 for _ in range(len(completion_mask[i]), len(prompt_completions_ids[i]))])
+                    completion_mask[i].extend([1 for _ in range(len(token_ids))])
 
-                    if len(prompt_completions_ids[i]) > self.max_length:
+                    if len(prompt_token_ids) + len(token_ids) > self.max_length:
                         states[i]["skip_flag"] = True
             
             for i, state in enumerate(states):
@@ -423,7 +386,8 @@ class AlfRollout(BaseRollout):
                         "content": "FAIL"
                     })
             
-            final_output = self.inference_engine.get_tokenizer().tokenizer.apply_chat_template([s['messages'] for s in states])
+            final_output = self.inference_engine.get_tokenizer().apply_chat_template([s['messages'] for s in states])
+            # breakpoint()
             for i, state in enumerate(states):
                 # 提取完整上下文 all_completion_ids，包括系统消息、用户输入、助手回复等
                 prompt_outputs_ids[i] = final_output[i]

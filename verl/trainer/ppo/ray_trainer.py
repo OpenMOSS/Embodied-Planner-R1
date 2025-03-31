@@ -169,7 +169,7 @@ def compute_advantage(data: DataProto, adv_estimator, gamma=1.0, lam=1.0, num_re
     # prepare response group
     # TODO: add other ways to estimate advantages
 
-    breakpoint()
+    # breakpoint()
 
     if adv_estimator == AdvantageEstimator.GAE:
         values = data.batch['values']
@@ -265,7 +265,7 @@ class RayPPOTrainer(object):
                  val_reward_fn=None):
 
         # assert torch.cuda.is_available(), 'cuda must be available on driver'
-        breakpoint()
+        # breakpoint()
         self.tokenizer = tokenizer
         self.processor = processor
         self.config = config
@@ -409,7 +409,7 @@ class RayPPOTrainer(object):
     def _create_dataloader(self):
         # TODO: we have to make sure the batch size is divisible by the dp size
 
-        breakpoint()
+        # breakpoint()
         self.train_dataset = RLHFDataset(parquet_files=self.config.data.train_files,
                                          tokenizer=self.tokenizer,
                                          processor=self.processor,
@@ -507,7 +507,7 @@ class RayPPOTrainer(object):
         self.validation_generations_logger.log(self.config.trainer.logger, samples, self.global_steps)
 
     def _validate(self):
-        breakpoint()
+        # breakpoint()
         reward_tensor_lst = []
         data_source_lst = []
 
@@ -555,7 +555,7 @@ class RayPPOTrainer(object):
             test_gen_batch_padded, pad_size = pad_dataproto_to_divisor(test_gen_batch, self.actor_rollout_wg.world_size)
             test_output_gen_batch_padded = self.actor_rollout_wg.generate_sequences(test_gen_batch_padded)
 
-            breakpoint()
+            # breakpoint()
             # unpad
             test_output_gen_batch = unpad_dataproto(test_output_gen_batch_padded, pad_size=pad_size)
             print('validation generation end')
@@ -776,7 +776,7 @@ class RayPPOTrainer(object):
         """
         from verl.utils.tracking import Tracking
         from omegaconf import OmegaConf
-        breakpoint()
+        # breakpoint()
         logger = Tracking(project_name=self.config.trainer.project_name,
                           experiment_name=self.config.trainer.experiment_name,
                           default_backend=self.config.trainer.logger,
@@ -796,7 +796,7 @@ class RayPPOTrainer(object):
             if self.config.trainer.get('val_only', False):
                 return
 
-        breakpoint()
+        # breakpoint()
         # we start from step 1
         self.global_steps += 1
         last_val_metrics = None
@@ -805,7 +805,7 @@ class RayPPOTrainer(object):
             for batch_dict in self.train_dataloader:
                 metrics = {}
                 timing_raw = {}
-                breakpoint()
+                # breakpoint()
                 batch: DataProto = DataProto.from_single_dict(batch_dict)
 
                 # pop those keys for generation
@@ -826,7 +826,7 @@ class RayPPOTrainer(object):
                     # generate a batch
                     with _timer('gen', timing_raw):
                         gen_batch_output = self.actor_rollout_wg.generate_sequences(gen_batch)
-                        breakpoint()
+                        # breakpoint()
 
                     if self.config.algorithm.adv_estimator == AdvantageEstimator.REMAX:
                         with _timer('gen_max', timing_raw):
@@ -844,7 +844,7 @@ class RayPPOTrainer(object):
 
                             del gen_baseline_batch, gen_baseline_output
 
-                    breakpoint()
+                    # breakpoint()
                     batch.non_tensor_batch['uid'] = np.array([str(uuid.uuid4()) for _ in range(len(batch.batch))],
                                                              dtype=object)
                     # repeat to align with repeated responses in rollout
@@ -863,10 +863,10 @@ class RayPPOTrainer(object):
                     # recompute old_log_probs
                     with _timer('old_log_prob', timing_raw):
 
-                        breakpoint()
+                        # breakpoint()
                         old_log_prob = self.actor_rollout_wg.compute_log_prob(batch)
 
-                        breakpoint()
+                        # breakpoint()
                         batch = batch.union(old_log_prob)
 
                     if self.use_reference_policy:

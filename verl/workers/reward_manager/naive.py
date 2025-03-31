@@ -64,7 +64,7 @@ class NaiveRewardManager:
 
     def __call__(self, data: DataProto):
         """We will expand this function gradually based on the available datasets"""
-        breakpoint()
+        # breakpoint()
         # If there is rm score, we directly return rm score. Otherwise, we compute via rm_score_fn
         if 'rm_scores' in data.batch.keys():
             return data.batch['rm_scores']
