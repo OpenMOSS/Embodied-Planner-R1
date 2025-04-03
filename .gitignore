@@ -137,3 +137,6 @@ events.*
 
 test.py
 *log*
+outputs_demo/
+test/
+*.txt

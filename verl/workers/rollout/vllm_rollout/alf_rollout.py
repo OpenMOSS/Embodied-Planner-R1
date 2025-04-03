@@ -140,7 +140,7 @@ class AlfRollout(BaseRollout):
         kwargs = dict(
             n=1,
             logprobs=0,  # can be set to 0 and let actor to recompute
-            max_tokens=config.response_length,
+            max_tokens=1024,
         )
 
         # # we may detokenize the result all together later
@@ -160,7 +160,9 @@ class AlfRollout(BaseRollout):
 
         # self.chat_template = tokenizer.get_chat_template()
         self.debug = 0
-        self.server_url = server_url
+        import os
+        gpu_id = os.environ.get("CUDA_VISIBLE_DEVICES")
+        self.server_url = f'http://localhost:{server_url + int(gpu_id)}'
         self.ping()
 
     @contextmanager

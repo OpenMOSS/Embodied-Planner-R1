@@ -1,6 +1,6 @@
 final_folder="/inspire/hdd/ws-8207e9e2-e733-4eec-a475-cfa1c36480ba/embodied-multimodality/qiuxipeng-24028/xpqiu/lji/verl_mod/verl/outputs_demo"  
 
-bash_path=/inspire/hdd/ws-8207e9e2-e733-4eec-a475-cfa1c36480ba/embodied-multimodality/qiuxipeng-24028/xpqiu/lji/verl_mod/examples/grpo_trainer/alf_v1.sh
+bash_path=/inspire/hdd/ws-8207e9e2-e733-4eec-a475-cfa1c36480ba/embodied-multimodality/qiuxipeng-24028/xpqiu/lji/verl_mod/examples/grpo_trainer/alf_v1_sft.sh
 
 
 project_name=$(basename "$bash_path" .sh)

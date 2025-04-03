@@ -841,6 +841,16 @@ class RayPPOTrainer(object):
                             del gen_baseline_batch, gen_baseline_output
 
                     batch = gen_batch.union(gen_batch_output)
+                    output_texts = [self.tokenizer.decode(ids, skip_special_tokens=True) for ids in batch.batch['input_ids']]
+                    folder_path = self.config.trainer.log_dir
+                    if not os.path.exists(folder_path):
+                        # 创建文件夹
+                        os.makedirs(folder_path)
+                    file_path = os.path.join(folder_path, 'step_'+str(self.global_steps)+'.txt')
+                    with open(file_path, 'a') as f:
+                        separator="\n\n=====\n\n"
+                        content = separator.join(output_texts)
+                        f.write(content)
 
                     # balance the number of valid tokens on each dp rank.
                     # Note that this breaks the order of data inside the batch.
