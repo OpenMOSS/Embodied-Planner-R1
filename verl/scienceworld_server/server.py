@@ -37,6 +37,7 @@ app = FastAPI()
 class TrajRequest(BaseModel):
     task: List[str]
     var: List[int]
+    simplificationStr: str
 
 class ActionRequest(BaseModel):
     actions: List[str]
@@ -62,6 +63,7 @@ async def reset(request: TrajRequest) -> Response:
     try:
         task = request.task
         var = request.var
+        simplificationStr = request.simplificationStr
         # batch_size = request.batch_size
 
         # 检查是否存在旧环境，如果存在则关闭
@@ -84,7 +86,7 @@ async def reset(request: TrajRequest) -> Response:
         # Initialize the environment
         env = MultiScienceWorldEnv(envStepLimit=1000 , batch_size=len(task))  
 
-        env.load(task=task, var=var)
+        env.load(task=task, var=var, simplificationStr=simplificationStr)
         
         logger.info(f"[{request_id}] 环境初始化完成，正在重置环境...")
         # Reset the environment and get initial observations
@@ -125,7 +127,8 @@ async def step(request: ActionRequest) -> Response:
     try:
         logger.info(f"[{request_id}] 执行动作中...")
         # Execute the actions in the environment
-        obs, scores, dones, infos = env.step(request.actions)
+        obs, rewards, dones, infos = env.step(request.actions)
+        scores = [info['score'] for info in infos]
         
         logger.info(f"[{request_id}] 动作执行完成，获得观察值数量: {len(obs)}")
         logger.info(f"[{request_id}] 已执行动作: {' '.join([str(d) + ' |' for d in request.actions])}")

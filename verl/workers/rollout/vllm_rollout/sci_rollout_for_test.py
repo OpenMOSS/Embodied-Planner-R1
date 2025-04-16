@@ -41,6 +41,7 @@ from vllm.distributed import parallel_state as vllm_ps
 from vllm import LLM, SamplingParams
 from verl.third_party.vllm import vllm_version
 from vllm.outputs import RequestOutput
+
 # TODO
 # 1. support pp in vllm
 # 2. passing tokenizer is not necessary? no encoding/decoding is happending here
@@ -83,8 +84,8 @@ class SciRollout(BaseRollout):
             "disable CUDA graph (enforce_eager = False) if free cache engine"
 
         tensor_parallel_size = self.config.get('tensor_model_parallel_size', 1)
-        assert tensor_parallel_size <= torch.distributed.get_world_size(), \
-            "tensor parallel size should be less than or equal to the world size"
+        # assert tensor_parallel_size <= torch.distributed.get_world_size(), \
+        #     "tensor parallel size should be less than or equal to the world size"
         max_num_batched_tokens = int(self.config.get('max_num_batched_tokens', 8192))
 
         if kwargs.get('train_tp', None) is not None:
@@ -112,22 +113,11 @@ class SciRollout(BaseRollout):
         if vllm_version == '0.7.0+': 
             self.inference_engine = LLM(
                 model=model_path,
-                # actor_module_path,
-                # tokenizer=model_path,
-                # model_hf_config=model_hf_config,
-                enable_sleep_mode=True,
-                tensor_parallel_size=tensor_parallel_size,
-                distributed_executor_backend="external_launcher",
+                device='cuda',
                 dtype=config.dtype,
                 enforce_eager=config.enforce_eager,
                 gpu_memory_utilization=config.gpu_memory_utilization,
-                disable_custom_all_reduce=True,
-                skip_tokenizer_init=False,
                 max_model_len=max_model_len,
-                # load_format=config.load_format,
-                disable_log_stats=config.disable_log_stats,
-                max_num_batched_tokens=max_num_batched_tokens,
-                enable_chunked_prefill=config.enable_chunked_prefill,
                 enable_prefix_caching=True,
             )
         else:
@@ -135,7 +125,7 @@ class SciRollout(BaseRollout):
 
         # Offload vllm model to reduce peak memory usage
         # self.inference_engine.offload_model_weights()
-        self.inference_engine.sleep(1)
+        # self.inference_engine.sleep(1)
 
         kwargs = dict(
             n=1,
@@ -160,9 +150,9 @@ class SciRollout(BaseRollout):
 
         # self.chat_template = tokenizer.get_chat_template()
         self.debug = 0
-        import os
-        gpu_id = os.environ.get("CUDA_VISIBLE_DEVICES")
-        self.server_url = f'http://localhost:{server_url + int(gpu_id)}'
+        # import os
+        # gpu_id = os.environ.get("CUDA_VISIBLE_DEVICES")
+        self.server_url = f'http://127.0.0.1:{server_url}'
         self.ping()
 
     @contextmanager
@@ -192,7 +182,7 @@ class SciRollout(BaseRollout):
             except:
                 assert repeat_time < max_waiting_time, f"server is not ready in {str(max_waiting_time)} s, please check the server status."
                 repeat_time += 1
-                logging.info(f"server is not ready, wait for {str(repeat_time * 5)} s")
+                print(f"server {self.server_url} is not ready, wait for {str(repeat_time * 5)} s")
                 time.sleep(repeat_time * 5)
 
     def fake_init(self, task, var, **kwargs):
@@ -256,8 +246,8 @@ class SciRollout(BaseRollout):
         self.max_length = prompts.meta_info['max_length']
         self.easy = prompts.meta_info['easy']
         # rebuild vllm cache engine
-        if self.config.free_cache_engine:
-            self.inference_engine.init_cache_engine()
+        # if self.config.free_cache_engine:
+        #     self.inference_engine.init_cache_engine()
 
         task = prompts.non_tensor_batch['task'].tolist()
         var = prompts.non_tensor_batch['var'].tolist()
@@ -318,7 +308,7 @@ class SciRollout(BaseRollout):
                             "role": "system"
                         },
                         {
-                            "content": f"{tasks_des[i]}\n\nObservation:{system_info[i]}",
+                            "content": f"{task[i]}: {var[i]}\n\n{tasks_des[i]}\n\nObservation:{system_info[i]}",
                             "role": "user"
                         }
                 ], 
@@ -348,13 +338,13 @@ class SciRollout(BaseRollout):
 
                     if batch_action[i] == "done":
                         states[i]["skip_flag"] = True
-                        # batch_obs[i] = batch_obs[i] + '\nagent thinks task completed'
+                        batch_obs[i] = batch_obs[i] + '\nagent thinks task completed'
                     elif batch_done[i] == True and batch_scores[i] < 0:
                         states[i]["skip_flag"] = True
-                        # batch_obs[i] = batch_obs[i] + '\nenv end'
+                        batch_obs[i] = batch_obs[i] + '\nenv end'
                     elif states[i]["completed"] == False and batch_done[i] == True:
                         states[i]["completed"] = True
-                        # batch_obs[i] = batch_obs[i] + '\nscores: ' + str(batch_scores[i])
+                        batch_obs[i] = batch_obs[i] + '\nscores: ' + str(batch_scores[i])
                     
                     states[i]["messages"].append({
                         "role": "tool",
@@ -441,7 +431,7 @@ class SciRollout(BaseRollout):
             batch_size=batch_size)
 
         # free vllm cache engine
-        if self.config.free_cache_engine:
-            self.inference_engine.free_cache_engine()
+        # if self.config.free_cache_engine:
+        #     self.inference_engine.free_cache_engine()
 
         return DataProto(batch=batch)

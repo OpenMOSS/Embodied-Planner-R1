@@ -141,3 +141,7 @@ outputs_demo/
 outputs_v2/
 test/
 *.txt
+
+easy_*
+normal_*
+outputs_*

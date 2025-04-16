@@ -537,9 +537,10 @@ class RayPPOTrainer(object):
                 'recompute_log_prob': False,
                 'do_sample': self.config.actor_rollout_ref.rollout.val_kwargs.do_sample,
                 'validate': True,
-                'system_prompt': self.config.data.system_prompt,
+                'system_prompt': os.environ.get('system_prompt'),
                 'max_length': self.config.data.max_length,
-                'max_steps': self.config.data.max_steps
+                'max_steps': self.config.data.max_steps,
+                'easy': self.config.data.easy
             }
             print(f'test_gen_batch meta info: {test_gen_batch.meta_info}')
 
@@ -812,9 +813,11 @@ class RayPPOTrainer(object):
                     batch_keys=['_dummy'],
                     non_tensor_batch_keys=['task', 'var', 'uid'],
                 )
-                gen_batch.meta_info['system_prompt'] = self.config.data.system_prompt
+                # gen_batch.meta_info['system_prompt'] = self.config.data.system_prompt
+                gen_batch.meta_info['system_prompt'] = os.environ.get('system_prompt')
                 gen_batch.meta_info['max_steps'] = self.config.data.max_steps
                 gen_batch.meta_info['max_length'] = self.config.data.max_length
+                gen_batch.meta_info['easy'] = self.config.data.easy
 
                 is_last_step = self.global_steps >= self.total_training_steps
 

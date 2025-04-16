@@ -341,8 +341,8 @@ if __name__ == "__main__":
             obs, reward, done, info = results
             # print(obs)
             print(i)
-            print(reward)
-            print(done)
+            print(obs)
+            # print(done)
             
             # 处理结果
             # for env_id, result in results.items():
