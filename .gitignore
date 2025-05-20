@@ -128,7 +128,7 @@ outputs
 
 data
 
-*.json
+# *.json
 
 docker
 

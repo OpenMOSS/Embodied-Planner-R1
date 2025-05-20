@@ -89,19 +89,18 @@ def initialize_model_and_tokenizer(
 
 def main():
     # Loading huggingface-style checkpoint
-    model_path = "/inspire/hdd/ws-8207e9e2-e733-4eec-a475-cfa1c36480ba/embodied-multimodality/qiuxipeng-24028/xpqiu/lji/data/Qwen/Qwen2.5-7B-Instruct"
-    # model_path = "Qwen/Qwen2.5-3B"
-    # model_path = "Qwen/Qwen2.5-3B-Instruct"
+    model_path = "/path/to/Qwen2.5-7B-Instruct"
+
 
     tokenizer, actor_module = initialize_model_and_tokenizer(model_path)
 
     # Loading FSDP checkpoint (optional: these three lines can be skipped. Prerequisite: actor_module must be preloaded)
-    fsdp_checkpoint_path = "/inspire/hdd/ws-8207e9e2-e733-4eec-a475-cfa1c36480ba/embodied-multimodality/qiuxipeng-24028/xpqiu/lji/verl_mod/verl/outputs_v2/20250404/alf_v2/20250404_1749/rank_0/ckpt/global_step_50/actor"
+    fsdp_checkpoint_path = "/path/to/ckpt/actor"
     state_dict = load_sharded_model(fsdp_checkpoint_path)
     actor_module.load_state_dict(state_dict)
 
-    actor_module.save_pretrained('/inspire/hdd/ws-8207e9e2-e733-4eec-a475-cfa1c36480ba/embodied-multimodality/qiuxipeng-24028/xpqiu/lji/verl_mod/verl/eval/test')
-    tokenizer.save_pretrained('/inspire/hdd/ws-8207e9e2-e733-4eec-a475-cfa1c36480ba/embodied-multimodality/qiuxipeng-24028/xpqiu/lji/verl_mod/verl/eval/test')
+    actor_module.save_pretrained('/embodied-r1/verl/eval/test')
+    tokenizer.save_pretrained('/embodied-r1/verl/eval/test')
 
 if __name__ == "__main__":
     main()

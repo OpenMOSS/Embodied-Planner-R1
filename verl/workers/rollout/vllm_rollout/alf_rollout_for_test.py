@@ -191,7 +191,6 @@ class AlfRollout(BaseRollout):
             observation_str = ["You arrive at shelf 1. On the shelf 1, you see a candle 2, and a soapbar 1."] * len(game_file)
             task_str = ["put soapbar into shelf"] * len(game_file)
         else:
-            # /inspire/hdd/ws-8207e9e2-e733-4eec-a475-cfa1c36480ba/embodied-multimodality/qiuxipeng-24028/xpqiu/lji/open-embodied-r1/alfworld_server/data/json_2.1.1/valid_seen/pick_cool_then_place_in_recep-Pan-None-DiningTable-7/trial_T20190908_232648_241836/game.tw-pddl
             res = requests.post(self.server_url + "/reset", json={'game_file': game_file.tolist(), 'batch_size': len(game_file)}) 
             res = res.json()['observations']
 

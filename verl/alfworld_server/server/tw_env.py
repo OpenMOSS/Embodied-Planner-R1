@@ -290,10 +290,3 @@ def get_tw_env(game_file, batch_size, max_nb_steps_per_episode=100):
     # Launch Gym environment.
     env = textworld.gym.make(env_id)
     return env
-
-
-if __name__ == "__main__":
-    print("This module is being run directly")
-    game_file = ['/inspire/hdd/ws-8207e9e2-e733-4eec-a475-cfa1c36480ba/embodied-multimodality/qiuxipeng-24028/xpqiu/lji/open-embodied-r1/alfworld_server/data/json_2.1.1/valid_seen/pick_cool_then_place_in_recep-Pan-None-DiningTable-7/trial_T20190908_232648_241836/game.tw-pddl']
-    env = get_tw_env(game_file=game_file, batch_size=2)
-    print(env.reset())

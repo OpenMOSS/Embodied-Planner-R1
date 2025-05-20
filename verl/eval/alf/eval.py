@@ -27,23 +27,19 @@ def check_success(completion_str):
         return False
 
 def get_task_type(game_file):
-    # /inspire/hdd/ws-8207e9e2-e733-4eec-a475-cfa1c36480ba/embodied-multimodality/qiuxipeng-24028/xpqiu/lji/open-embodied-r1/alfworld_server/data/json_2.1.1/valid_seen/pick_clean_then_place_in_recep-ButterKnife-None-CounterTop-8/trial_T20190909_105559_983897/game.tw-pddl
 
     game_name = game_file.split("/")[13]
     task_type = game_name.split("-")[0]
     return task_type
 
-@hydra.main(config_path='/inspire/hdd/ws-8207e9e2-e733-4eec-a475-cfa1c36480ba/embodied-multimodality/qiuxipeng-24028/xpqiu/lji/verl_mod/verl/trainer/config', config_name='ppo_trainer')
+@hydra.main(config_path='/embodied-r1/verl/trainer/config', config_name='ppo_trainer')
 def main(config):
     # Loading huggingface-style checkpoint
     logger = logging.getLogger(__name__)
-    # model_path = "/inspire/hdd/ws-8207e9e2-e733-4eec-a475-cfa1c36480ba/embodied-multimodality/qiuxipeng-24028/xpqiu/lji/verl_mod/verl/outputs_v2/20250404/alf_v2/20250404_1749/rank_0/ckpt/global_step_60/actor/huggingface"
 
-    # model_path = "/inspire/hdd/ws-8207e9e2-e733-4eec-a475-cfa1c36480ba/embodied-multimodality/qiuxipeng-24028/xpqiu/lji/data/Qwen/Qwen2.5-7B-Instruct"
+    model_path = "/path/to/ckpt"
 
-    model_path = "/inspire/hdd/ws-8207e9e2-e733-4eec-a475-cfa1c36480ba/embodied-multimodality/qiuxipeng-24028/xpqiu/lji/LLaMA-Factory/saves/qwen2.5-7b-instruct/full/sft_full_task/checkpoint-485"
-
-    val_dataset = JSONDataset("/inspire/hdd/ws-8207e9e2-e733-4eec-a475-cfa1c36480ba/embodied-multimodality/qiuxipeng-24028/xpqiu/lji/data/WKM-unseen/seen.json")
+    val_dataset = JSONDataset("get_data/rl/alf_valid_unseen.json")
 
     val_dataloader = DataLoader(
         dataset=val_dataset,
@@ -115,11 +111,6 @@ def main(config):
             os.makedirs(folder_path)
         file_path = os.path.join(folder_path, 'outputs.txt')
         
-        # import pdb;pdb.set_trace()
-        # with open(file_path, 'a') as f:
-        #     separator="\n\n=====\n\n"
-        #     content = separator.join(output_texts)
-        #     f.write(content)
 
         test_batch = test_batch.union(test_output_gen_batch)
 
@@ -141,12 +132,6 @@ def main(config):
             with open(file_path, 'a') as f:
                 f.write(json.dumps(output_content) + "\n")
 
-        # Store scores
-        # scores = reward_tensor.sum(-1).cpu().tolist()
-        # logger.info(f'scores: {scores}')
-        # sample_scores.extend(scores)
-
-        # reward_tensor_lst.append(reward_tensor)
 
     # reward_tensor = torch.cat(reward_tensor_lst, dim=0).sum(-1).cpu()  # (batch_size,)
     metric_dict = {}

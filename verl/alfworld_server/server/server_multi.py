@@ -1,4 +1,4 @@
-
+import os
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from typing import List, Dict, Any
@@ -8,10 +8,11 @@ import time
 import logging
 import argparse
 from datetime import datetime
+ 
+# 现在可以导入 tw_env.py 中的内容
+from tw_env import get_tw_env
 
-sys.path.append("/inspire/hdd/ws-8207e9e2-e733-4eec-a475-cfa1c36480ba/embodied-multimodality/qiuxipeng-24028/xpqiu/lji/verl_mod/verl")
-
-from alfworld_server.alfworld_server_lite.tw_env import get_tw_env
+# from embodied_r1.verl.alfworld_server.alfworld_server_lite.tw_env import get_tw_env
 
 # 添加命令行参数解析
 parser = argparse.ArgumentParser(description="ALFWorld 服务器")

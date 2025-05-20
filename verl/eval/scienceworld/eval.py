@@ -19,17 +19,14 @@ from verl.workers.rollout.vllm_rollout.sci_rollout_for_test import SciRollout
 import logging
 
 
-@hydra.main(config_path='/inspire/hdd/ws-8207e9e2-e733-4eec-a475-cfa1c36480ba/embodied-multimodality/qiuxipeng-24028/xpqiu/lji/verl_mod/verl/trainer/config', config_name='ppo_trainer')
+@hydra.main(config_path='/embodied-r1/verl/trainer/config', config_name='ppo_trainer')
 def main(config):
     # Loading huggingface-style checkpoint
     logger = logging.getLogger(__name__)
-    # model_path = "/inspire/hdd/ws-8207e9e2-e733-4eec-a475-cfa1c36480ba/embodied-multimodality/qiuxipeng-24028/xpqiu/lji/verl_mod/verl/eval/scienceworld/test"
 
-    model_path = "/inspire/hdd/ws-8207e9e2-e733-4eec-a475-cfa1c36480ba/embodied-multimodality/qiuxipeng-24028/xpqiu/lji/LLaMA-Factory/saves/qwen2.5-7b-instruct/full/sft_sci/checkpoint-130"
+    model_path = "/path/to/ckpt"
 
-    # model_path = "/inspire/hdd/ws-8207e9e2-e733-4eec-a475-cfa1c36480ba/embodied-multimodality/qiuxipeng-24028/xpqiu/lji/verl_mod/verl/outputs_v2/20250404/alf_v2/20250404_1749/rank_0/ckpt/global_step_10/actor/huggingface"
-
-    val_dataset = JSONDataset("/inspire/hdd/ws-8207e9e2-e733-4eec-a475-cfa1c36480ba/embodied-multimodality/qiuxipeng-24028/xpqiu/lji/data/ScienceWolrd/valid_dataset.json")
+    val_dataset = JSONDataset("get_data/rl/sci_test.json")
 
     val_dataloader = DataLoader(
         dataset=val_dataset,
@@ -54,8 +51,8 @@ def main(config):
                             config=config.actor_rollout_ref.rollout,
                             tokenizer=tokenizer,
                             model_hf_config=actor_model_config,
-                            server_url=8004)
-    system_prompt='You are a helpful assistant to do some scientific experiment in an environment.\nYou should explore the environment and find the items you need to complete the experiment.\n\nIn the environment, there are several rooms: kitchen, foundry, workshop, bathroom, outside, living room, bedroom, greenhouse, art studio, hallway.\nThe available actions are:\nactivate OBJ\nclose OBJ\nconnect OBJ to OBJ\ndeactivate OBJ\ndisconnect OBJ\ndunk OBJ in OBJ\neat OBJ\nflush OBJ\nfocus on OBJ\ngo LOC\ninventory\nlook around\nlook at OBJ\nlook in OBJ\nmix OBJ\nmove OBJ to OBJ\nopen OBJ\npick up OBJ\npour OBJ in OBJ\nput down OBJ\nread OBJ\nuse OBKJ on OBJ\nwait: wait 10 steps\nwait1: wait 1 step\ntask: check your task\ndone: indicate that you believe the task is complete\nWhen arrive a new location, you should use look around to check the OBj you can interact with.\nUse focus on OBJ only neccessary as incorrect use will cause environment ends.\nDo not proceed with any further exploration or actions until you receive the feedback from the environment after your action.\nYour response should use the following format:\n\nThought: <your thoughts>\nAction: <your next action>'
+                            server_url=8001)
+    system_prompt='You are a helpful assistant to do some scientific experiment in an environment.\nYou should explore the environment and find the items you need to complete the experiment.\n\nIn the environment, there are several rooms: kitchen, foundry, workshop, bathroom, outside, living room, bedroom, greenhouse, art studio, hallway.\nYou can teleport to any room in one step.\nThe available actions are:\nactivate OBJ\nclose OBJ\nconnect OBJ to OBJ\ndeactivate OBJ\ndisconnect OBJ\ndunk OBJ in OBJ\neat OBJ\nflush OBJ\nfocus on OBJ\ngo LOC\ninventory\nlook around\nlook at OBJ\nlook in OBJ\nmix OBJ\nmove OBJ to OBJ\nopen OBJ\npick up OBJ\npour OBJ in OBJ\nput down OBJ\nread OBJ\nuse OBKJ on OBJ\nteleport to LOC\nwait: wait 10 steps\nwait1: wait 1 step\ntask: check your task\ndone: indicate that you believe the task is complete\nWhen arrive a new location, you should use look around to check the OBj you can interact with.\nUse focus on OBJ only neccessary as incorrect use will cause environment ends.\nDo not proceed with any further exploration or actions until you receive the feedback from the environment after your action.\nYour response should use the following format:\n\nThought: <your thoughts>\nAction: <your next action>'
     reward_tensor_lst = []
     for test_data in val_dataloader:
         # breakpoint()
