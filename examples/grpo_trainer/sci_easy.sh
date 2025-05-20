@@ -9,7 +9,7 @@ ray start --head
 python -m verl.trainer.main_ppo_sci \
     algorithm.adv_estimator=grpo \
     data.train_files=get_data/rl/sci_train.json \
-    data.val_files=get_data/rl/sci_seen.json \
+    data.val_files=get_data/rl/sci_dev.json \
     data.train_batch_size=64 \
     +data.max_length=4096 \
     +data.max_steps=30 \

@@ -32,7 +32,7 @@ if ss -tuln | grep -q ":$PORT "; then
     echo "端口 $PORT 已被占用"
 else
     echo "$PORT 未被占用"
-    conda activate /path/to/sciworld-env
+    conda activate scienceworld
     cd $REPO_HOME/verl/scienceworld_server
     server_cmd="python start_server.py --num_servers 8"
 
@@ -43,7 +43,7 @@ else
 fi
 
 cd $REPO_HOME
-conda activate /path/to/embodied-r1-env
+conda activate embodied-r1
 cmd="bash ${bash_path}"
 echo "Running $cmd"
 

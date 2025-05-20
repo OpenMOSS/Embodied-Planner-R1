@@ -16,6 +16,7 @@ pip3 install vllm==0.8.3
 
 # Install flash-attn
 pip3 install flash-attn --no-build-isolation
+pip3 install tensorboard
 ```
 
 2. Prepare environment for ALFWorld
@@ -25,7 +26,9 @@ conda activate alfworld
 
 # download task for training
 pip install alfworld
-alfworld-download
+pip install fastapi
+pip install uvicorn
+alfworld-download --data-dir ./get_data/alfworld
 ```
 
 3. Prepare environment for ScienceWorld
@@ -34,12 +37,15 @@ conda create --name scienceworld python=3.8
 conda activate scienceworld
 
 pip install scienceworld
+pip install fastapi
+pip install uvicorn
 ```
 
 ## 2. Prepare for data
 ```
 # get task data for rl training
-bash get_data/get_data_for_training.sh
+cd get_data
+bash get_data_for_training.sh
 ```
 
 ## 3. Start training

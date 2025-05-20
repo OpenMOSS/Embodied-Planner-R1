@@ -9,7 +9,7 @@ ray start --head
 python -m verl.trainer.main_ppo_alf \
     algorithm.adv_estimator=grpo \
     data.train_files=get_data/rl/alf_train.json \
-    data.val_files=get_data/rl/alf_seen.json \
+    data.val_files=get_data/rl/alf_valid_seen.json \
     data.train_batch_size=128 \
     +data.max_length=4096 \
     +data.max_steps=30 \

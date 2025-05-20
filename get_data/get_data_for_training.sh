@@ -12,7 +12,7 @@ python -m utils.modify_alf_sft --input ${ORIGIN_SFT}/data/sciworld_sft.json --ou
 
 
 # 2. task for rl
-ALF_GAMEFILE_PATH='~/.cache/alfworld'
+ALF_GAMEFILE_PATH='./alfworld'
 python -m utils.generate_alf_indice --input "${ALF_GAMEFILE_PATH}/json_2.1.1/train" --output ./rl/alf_train.json
 python -m utils.generate_alf_indice --input "${ALF_GAMEFILE_PATH}/json_2.1.1/valid_seen" --output ./rl/alf_valid_seen.json
 python -m utils.generate_alf_indice --input "${ALF_GAMEFILE_PATH}/json_2.1.1/valid_unseen" --output ./rl/alf_valid_unseen.json
