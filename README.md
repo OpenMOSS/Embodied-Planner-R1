@@ -1,13 +1,13 @@
 <h1 style="text-align: center;">LEAP: Learning to Explore and Act via Pure Reinforcement Learning</h1>
 
 ## Installation
-1. leap is based on verl with vLLM>=0.8
+1. LEAP is based on verl with vLLM>=0.8
 ```
 # Create the conda environment
-conda create -n leap python==3.10
-conda activate leap
+conda create -n LEAP python==3.10
+conda activate LEAP
 
-cd leap
+cd LEAP
 pip3 install -e .
 
 # Install the latest stable version of vLLM
