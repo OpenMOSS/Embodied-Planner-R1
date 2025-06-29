@@ -1,13 +1,13 @@
-<h1 style="text-align: center;">LEAP: Learning to Explore and Act via Pure Reinforcement Learning</h1>
+<h1 style="text-align: center;">Embodied-Planner-R1: Learning to Explore and Act via Pure Reinforcement Learning</h1>
 
 ## Installation
-1. LEAP is based on verl with vLLM>=0.8
+1. Embodied-Planner-R1 is based on verl with vLLM>=0.8
 ```
 # Create the conda environment
-conda create -n LEAP python==3.10
-conda activate LEAP
+conda create -n Embodied-Planner-R1 python==3.10
+conda activate Embodied-Planner-R1
 
-cd LEAP
+cd Embodied-Planner-R1
 pip3 install -e .
 
 # Install the latest stable version of vLLM
