@@ -1,6 +1,41 @@
-<h1 style="text-align: center;">Embodied-Planner-R1: Unleashing Embodied Task Planning Ability in LLMs via Reinforcement Learning</h1>
+<div align="center">
 
-## Installation
+# Embodied-Planner-R1
+<div>
+   🌠Unleashing Embodied Task Planning Ability in LLMs via Reinforcement Learning 🚀
+</div>
+</div>
+
+<div>
+<br>
+
+<div align="center">
+
+[![Hugging Face Model](https://img.shields.io/badge/models-%23000000?style=for-the-badge&logo=huggingface&logoColor=000&logoColor=white)]()
+[![Hugging Face Data](https://img.shields.io/badge/data-%23000000?style=for-the-badge&logo=huggingface&logoColor=000&logoColor=white)]()
+[![Paper](https://img.shields.io/badge/Paper-%23000000?style=for-the-badge&logo=arxiv&logoColor=000&labelColor=white)]()
+</div>
+</div>
+
+We introduce <strong>Embodied Planner-R1</strong>, a novel outcome-driven reinforcement learning framework that enables LLMs to develop interactive capabilities through autonomous exploration.
+
+Embodied Planner-R1 enables LLM agents to learn causal relationships between actions and environmental feedback through <strong>multi-turn</strong> interactions, allowing them to update their policies based on an outcome reward.
+
+<p align="center">
+<img src=figs/alf_performance.png width=700/>
+</p>
+
+
+
+
+## 🔥Releases
+<strong>[2025/07/01]</strong>
+- 🌌 Full training code and scripts are available. 
+- 🤗 We open source our model weights in [huggingface]()
+
+
+
+## 🚀 Installation
 1. Embodied-Planner-R1 is based on verl with vLLM>=0.8
 ```
 # Create the conda environment
@@ -41,14 +76,15 @@ pip install fastapi
 pip install uvicorn
 ```
 
-## 2. Prepare for data
+## 🛠️ Data preparation
+We need to prepare tasks for reinforcement learning.
 ```
 # get task data for rl training
 cd get_data
 bash get_data_for_training.sh
 ```
 
-## 3. Start training
+## 🕹️ Quick Start
 ```
 # Remember to replace the path in the shell script with your local path
 bash cmd/alf.sh
@@ -56,7 +92,7 @@ bash cmd/alf.sh
 bash cmd/sci_easy.sh
 ```
 
-## 4. Evaluation
+## 🎮 Evaluation
 ```
 # We follow the framework of MINT to evaluate models.
 cd verl/eval_agent
@@ -77,3 +113,14 @@ conda activate eval_agent
 python -m eval_agent.main --agent_config er1_alfworld --exp_config alfworld_v2 --split dev --verbose # you can find more examples in eval.sh
 
 ```
+
+
+## Acknowledgements
+The training codebase is primarily based on [Verl](https://github.com/volcengine/verl), while the evaluation framework is adapted from [MINT](https://github.com/xingyaoww/mint-bench). Our model builds upon the foundation of [`Qwen2.5-7B-Instruct`](https://huggingface.co/Qwen/Qwen2.5-7B-Instruct). We deeply appreciate their excellent contributions.
+
+
+## Citation
+```
+```
+
+
