@@ -1,4 +1,4 @@
-<h1 style="text-align: center;">Embodied-Planner-R1: Learning to Explore and Act via Pure Reinforcement Learning</h1>
+<h1 style="text-align: center;">Embodied-Planner-R1: Unleashing Embodied Task Planning Ability in LLMs via Reinforcement Learning</h1>
 
 ## Installation
 1. Embodied-Planner-R1 is based on verl with vLLM>=0.8
