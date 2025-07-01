@@ -1,31 +1,39 @@
-import hydra
-import numpy as np
-import os
-import re
-import torch
-import torch.distributed
-from pathlib import Path
-from torch.utils.data import DataLoader
-from transformers import AutoModelForCausalLM, AutoConfig
-from collections import defaultdict
+"""
+To convert model checkpoint trained from verl into transformers type checkpoint.
+"""
 
-from verl import DataProto
+import argparse
+import re
+import os
+import torch
+from pathlib import Path
+from collections import defaultdict
+from transformers import AutoModelForCausalLM, AutoConfig
+
 from verl.utils import hf_tokenizer
 from verl.utils.fs import copy_local_path_from_hdfs
-from verl.protocol import pad_dataproto_to_divisor, unpad_dataproto
-from verl.utils.dataset.rl_dataset import RLHFDataset, collate_fn, JSONDataset
-from verl.workers.reward_manager import AlfRewardManager
-# from verl.workers.rollout.hf_rollout import HFRollout
-from verl.workers.rollout.vllm_rollout.alf_rollout import AlfRollout
+
+
+def parse_args():
+    """解析命令行参数"""
+    parser = argparse.ArgumentParser(description="Load model and optionally FSDP checkpoint, then save it.")
+    parser.add_argument("--model", required=True, help="Path to the HuggingFace-style pretrained model.") # "/path/to/Qwen2.5-7B-Instruct"
+    parser.add_argument("--fsdp", help="Path to the FSDP checkpoint directory.") # "/path/to/ckpt/actor"
+    parser.add_argument("--output", required=True, help="Path to save the processed model and tokenizer.")
+    return parser.parse_args()
+
 
 def load_sharded_model(fsdp_checkpoint_path):
+    """加载分片模型（FSDP 检查点）"""
     state_dict = defaultdict(list)
     checkpoint_dir = Path(fsdp_checkpoint_path)
 
+    # 找到所有分片文件
     shard_files = list(checkpoint_dir.glob("model_world_size_*_rank_*.pt"))
     if not shard_files:
         raise ValueError(f"No checkpoint files found in {fsdp_checkpoint_path}")
 
+    # 检查 world_size 是否一致
     pattern = re.compile(r"model_world_size_(\d+)_rank_(\d+)\.pt")
     world_sizes = set()
     for file in shard_files:
@@ -41,6 +49,7 @@ def load_sharded_model(fsdp_checkpoint_path):
     world_size = world_sizes.pop()
     print(f"Found checkpoints with world_size = {world_size}")
 
+    # 加载每个分片文件
     for rank in range(world_size):
         filepath = checkpoint_dir / f"model_world_size_{world_size}_rank_{rank}.pt"
         if not filepath.exists():
@@ -54,6 +63,7 @@ def load_sharded_model(fsdp_checkpoint_path):
                 value = value.to_local()
             state_dict[key].append(value)
 
+    # 合并分片到完整的 state_dict
     consolidated_state_dict = {}
     for key in state_dict:
         try:
@@ -70,6 +80,7 @@ def load_sharded_model(fsdp_checkpoint_path):
 def initialize_model_and_tokenizer(
     model_path, trust_remote_code=True, torch_dtype=torch.bfloat16
 ):
+    """初始化模型和分词器"""
     local_path = copy_local_path_from_hdfs(model_path)
     tokenizer = hf_tokenizer(local_path, trust_remote_code=trust_remote_code)
 
@@ -87,20 +98,38 @@ def initialize_model_and_tokenizer(
     return tokenizer, actor_module
 
 
+def ensure_output_directory(output_path):
+    """确保输出文件夹存在，如果不存在则创建"""
+    output_dir = Path(output_path)
+    if not output_dir.exists():
+        print(f"Output directory {output_path} does not exist. Creating it.")
+        output_dir.mkdir(parents=True, exist_ok=True)
+    else:
+        print(f"Output directory {output_path} already exists.")
+
+
 def main():
-    # Loading huggingface-style checkpoint
-    model_path = "/path/to/Qwen2.5-7B-Instruct"
+    # 解析命令行参数
+    args = parse_args()
 
+    # 确保输出文件夹存在
+    ensure_output_directory(args.output)
 
-    tokenizer, actor_module = initialize_model_and_tokenizer(model_path)
+    # 加载 HuggingFace 模型
+    print(f"Loading HuggingFace model from: {args.model}")
+    tokenizer, actor_module = initialize_model_and_tokenizer(args.model)
 
-    # Loading FSDP checkpoint (optional: these three lines can be skipped. Prerequisite: actor_module must be preloaded)
-    fsdp_checkpoint_path = "/path/to/ckpt/actor"
-    state_dict = load_sharded_model(fsdp_checkpoint_path)
-    actor_module.load_state_dict(state_dict)
+    # 如果提供了 FSDP 检查点路径，则加载检查点
+    if args.fsdp:
+        print(f"Loading FSDP checkpoint from: {args.fsdp}")
+        state_dict = load_sharded_model(args.fsdp)
+        actor_module.load_state_dict(state_dict)
 
-    actor_module.save_pretrained('/embodied-r1/verl/eval/test')
-    tokenizer.save_pretrained('/embodied-r1/verl/eval/test')
+    # 保存模型和分词器
+    print(f"Saving model and tokenizer to: {args.output}")
+    actor_module.save_pretrained(args.output)
+    tokenizer.save_pretrained(args.output)
+
 
 if __name__ == "__main__":
     main()

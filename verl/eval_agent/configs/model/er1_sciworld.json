@@ -1,0 +1,11 @@
+{
+    "agent_class": "OpenAILMAgent",
+    "config": {
+        "api_key": "a",
+        "api_base": "http://localhost:8000/v1",
+        "model_name": "embodied_r1_sciworld",
+        "max_tokens": 4096,
+        "max_completion_tokens": 512,
+        "temperature": 0.0
+    }
+}
