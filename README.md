@@ -22,7 +22,8 @@ We introduce <strong>Embodied Planner-R1</strong>, a novel outcome-driven reinfo
 Embodied Planner-R1 enables LLM agents to learn causal relationships between actions and environmental feedback through <strong>multi-turn</strong> interactions, allowing them to update their policies based on an outcome reward.
 
 <p align="center">
-<img src=figs/alf_performance.png width=700/>
+<img src=figs/alf_curve.jpg width=700/>
+<img src=figs/alf_performance.jpg width=700/>
 </p>
 
 
@@ -31,7 +32,7 @@ Embodied Planner-R1 enables LLM agents to learn causal relationships between act
 ## 🔥Releases
 <strong>[2025/07/01]</strong>
 - 🌌 Full training code and scripts are available. 
-- 🤗 We open source our model weights in [huggingface]()
+- 🤗 We open-source our model weights in [huggingface]()
 
 
 
