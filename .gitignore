@@ -145,3 +145,4 @@ test/
 easy_*
 normal_*
 outputs_*
+*_outputs

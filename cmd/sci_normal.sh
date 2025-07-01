@@ -43,7 +43,7 @@ else
 fi
 
 cd $REPO_HOME
-conda activate embodied-r1
+conda activate Embodied-Planner-R1
 cmd="bash ${bash_path}"
 echo "Running $cmd"
 
