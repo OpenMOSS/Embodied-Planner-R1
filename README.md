@@ -37,6 +37,8 @@ Embodied Planner-R1 enables LLM agents to learn causal relationships between act
 
 
 ## 🚀 Installation
+We separate the VERL training framework from the environment and wrap the environment into a [server](verl/alfworld_server/server) for interaction.
+
 1. Embodied-Planner-R1 is based on verl with vLLM>=0.8
 ```
 # Create the conda environment
@@ -54,7 +56,7 @@ pip3 install flash-attn --no-build-isolation
 pip3 install tensorboard
 ```
 
-2. Prepare environment for ALFWorld
+2. Prepare the environment for ALFWorld
 ```
 conda create -n alfworld python=3.9
 conda activate alfworld
@@ -66,7 +68,7 @@ pip install uvicorn
 alfworld-download --data-dir ./get_data/alfworld
 ```
 
-3. Prepare environment for ScienceWorld
+3. Prepare the environment for ScienceWorld
 ```
 conda create --name scienceworld python=3.8
 conda activate scienceworld
@@ -86,6 +88,8 @@ bash get_data_for_training.sh
 ```
 
 ## 🕹️ Quick Start
+In our experimental setup, we used a 1×8 A100 (80GB) for training, with detailed training parameters provided in [examples/grpo_trainer/alf.sh](examples/grpo_trainer/alf.sh).
+
 ```
 # Remember to replace the path in the shell script with your local path
 bash cmd/alf.sh
