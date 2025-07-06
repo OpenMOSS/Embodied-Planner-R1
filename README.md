@@ -11,9 +11,9 @@
 
 <div align="center">
 
-[![Hugging Face Model](https://img.shields.io/badge/models-%23000000?style=for-the-badge&logo=huggingface&logoColor=000&logoColor=white)]()
-[![Hugging Face Data](https://img.shields.io/badge/data-%23000000?style=for-the-badge&logo=huggingface&logoColor=000&logoColor=white)]()
-[![Paper](https://img.shields.io/badge/Paper-%23000000?style=for-the-badge&logo=arxiv&logoColor=000&labelColor=white)]()
+[**🤗Model (AlfWorld)**](https://huggingface.co/fnlp/Embodied_Planner-R1-Alfworld) |
+[**🤗Model (ScienceWorld)**](https://huggingface.co/fnlp/Embodied_R1-ScienceWorld) |
+[**📖Paper**](https://arxiv.org/abs/2506.23127v1) |
 </div>
 </div>
 
