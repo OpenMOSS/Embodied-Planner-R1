@@ -32,7 +32,7 @@ Embodied Planner-R1 enables LLM agents to learn causal relationships between act
 ## 🔥Releases
 <strong>[2025/07/01]</strong>
 - 🌌 Full training code and scripts are available. 
-- 🤗 We open-source our model weights in [huggingface]()
+- 🤗 We open-source our model weights in [Embodied_R1-ScienceWorld](https://huggingface.co/fnlp/Embodied_R1-ScienceWorld) & [Embodied_Planner-R1-Alfworld](https://huggingface.co/fnlp/Embodied_Planner-R1-Alfworld).
 
 
 
