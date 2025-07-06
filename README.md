@@ -126,6 +126,12 @@ The training codebase is primarily based on [Verl](https://github.com/volcengine
 
 ## Citation
 ```
+@article{fei2025unleashing,
+  title={Unleashing Embodied Task Planning Ability in LLMs via Reinforcement Learning},
+  author={Fei, Zhaoye and Ji, Li and Wang, Siyin and Shi, Junhao and Gong, Jingjing and Qiu, Xipeng},
+  journal={arXiv preprint arXiv:2506.23127},
+  year={2025}
+}
 ```
 
 
