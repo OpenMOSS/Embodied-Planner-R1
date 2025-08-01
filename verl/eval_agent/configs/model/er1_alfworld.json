@@ -6,6 +6,6 @@
         "model_name": "embodied_r1_alfworld",
         "max_tokens": 4096,
         "max_completion_tokens": 512,
-        "temperature": 0.0
+        "temperature": 0.8
     }
 }
